@@ -394,7 +394,7 @@ def convert_to_coco_json(dataset_name, output_folder="", allow_cached=True):
     Args:
         dataset_name:
             reference from the config file to the catalogs
-            must be registered in DatastCatalog and in detectron2's standard format
+            must be registered in DatasetCatalog and in detectron2's standard format
         output_folder: where json file will be saved and loaded from
         allow_cached: if json file is already present then skip conversion
     Returns:

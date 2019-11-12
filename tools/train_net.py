@@ -36,6 +36,7 @@ from detectron2.evaluation import (
     verify_results,
 )
 from detectron2.modeling import GeneralizedRCNNWithTTA
+from detectron2.data.datasets import register_coco_instances
 
 
 class Trainer(DefaultTrainer):
@@ -149,7 +150,39 @@ def main(args):
     return trainer.train()
 
 
+def register_polyp_datasets():
+    polyp_datasets = {
+        "CVC-classification_train": {
+            "split": "train.json"
+        },
+        "cvc-colondb-300_train": {
+            "split": "train.json"
+        },
+        "cvc-colondb-612_train": {
+            "split": "train.json"
+        },
+        "cvcvideoclinicdbtest_test": {
+            "split": "test.json"
+        },
+        "CVC-VideoClinicDBtrain_valid_train": {
+            "split": "train.json"
+        },
+        "CVC-VideoClinicDBtrain_valid_valid": {
+            "split": "val.json"
+        },
+        "ETIS-LaribPolypDB_train": {
+            "split": "train.json"
+        },
+    }
+
+    for dataset_name, dataset_data in polyp_datasets.items():
+        annot_file = os.path.join("datasets",dataset_name.split("_")[0], "annotations", dataset_data['split'])
+        root_dir = os.path.join("datasets",dataset_name.split("_")[0], "images")
+        register_coco_instances(dataset_name, {}, annot_file, root_dir)
+
+
 if __name__ == "__main__":
+    register_polyp_datasets()
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
     launch(
