@@ -153,32 +153,42 @@ def main(args):
 def register_polyp_datasets():
     polyp_datasets = {
         "CVC-classification_train": {
-            "split": "train.json"
+            "split": "train.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "cvc-colondb-300_train": {
-            "split": "train.json"
+            "split": "train.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "cvc-colondb-612_train": {
-            "split": "train.json"
+            "split": "train.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "cvcvideoclinicdbtest_test": {
-            "split": "test.json"
+            "split": "test.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "CVC-VideoClinicDBtrain_valid_train": {
-            "split": "train.json"
+            "split": "train.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "CVC-VideoClinicDBtrain_valid_valid": {
-            "split": "val.json"
+            "split": "val.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
         "ETIS-LaribPolypDB_train": {
-            "split": "train.json"
+            "split": "train.json",
+            "thing_classes": ["Polyp", "AD", "N_AD"]
         },
     }
 
     for dataset_name, dataset_data in polyp_datasets.items():
         annot_file = os.path.join("datasets",dataset_name.split("_")[0], "annotations", dataset_data['split'])
         root_dir = os.path.join("datasets",dataset_name.split("_")[0], "images")
-        register_coco_instances(dataset_name, {}, annot_file, root_dir)
+        metadata = {
+            "thing_classes": dataset_data['thing_classes']
+        }
+        register_coco_instances(dataset_name, metadata, annot_file, root_dir)
 
 
 if __name__ == "__main__":
