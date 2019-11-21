@@ -2,84 +2,117 @@ import datetime
 
 import cv2
 import numpy as np
-import pandas as pd
 from pycocotools import coco
+from skimage import measure
+
+def close_contour(contour):
+    if not np.array_equal(contour[0], contour[-1]):
+        contour = np.vstack((contour, contour[0]))
+    return contour
+
+def binary_mask_to_polygon(binary_mask, tolerance=0):
+    """Converts a binary mask to COCO polygon representation
+    Args:
+        binary_mask: a 2D binary numpy array where '1's represent the object
+        tolerance: Maximum distance from original points of polygon to approximated
+            polygonal chain. If tolerance is 0, the original coordinate array is returned.
+    """
+    polygons = []
+    # pad mask to close contours of shapes which start and end at an edge
+    padded_binary_mask = np.pad(binary_mask, pad_width=1, mode='constant', constant_values=0)
+    contours = measure.find_contours(padded_binary_mask, 0.5)
+    contours = np.subtract(contours, 1)
+    for contour in contours:
+        contour = close_contour(contour)
+        contour = measure.approximate_polygon(contour, tolerance)
+        if len(contour) < 3:
+            continue
+        contour = np.flip(contour, axis=1)
+        segmentation = contour.ravel().tolist()
+        # after padding and subtracting 1 we may get -0.5 points in our segmentation
+        segmentation = [0 if i < 0 else i for i in segmentation]
+        polygons.append(segmentation)
+
+    return polygons
 
 
-def gen_csv(images_dir, images_extension, masks_dir, output_file, histologies_correspondences):
+def folders_to_coco(images_dir, images_extension, masks_dir, output_file, histologies_correspondences):
+    coco_images = {}
+    coco_annots = []
+
+    image_id = 1
+    annot_id = 1
+
     images = glob(images_dir + "*." + images_extension)
 
-    data = pd.DataFrame(columns=["image", "mask", "class", "box", "segm"])
     for image in images:
-        image = image.split("/")[-1].split(".")[0]
+        size = cv2.imread(image, 0).shape
+        image = image.split("/")[-1]
+        coco_images[image] = im_info(image_id, image, size)
+        image_id += 1
+        image = image.split(".")[0]
         masks = glob(masks_dir + image + "*")
 
-        seq = image.split("-")[0]
+        seq = image.split(".")[0].split("-")[0]
         histology = histologies_correspondences[seq]
-
-        if not masks:
-            data.loc[len(data)] = [image, "", "", "", ""]
 
         for mask in masks:
             im_mask = cv2.imread(mask, 0)
-
             res, labeled = cv2.connectedComponents(im_mask)
 
             # TODO filter small components
 
-            boxes = []
             for i in range(1, res):
                 ys, xs = np.where(labeled == i)
+                segm = binary_mask_to_polygon((labeled == 1).astype('uint8'))
+                box = [xs.min(), ys.min(), xs.max() - xs.min(), ys.max() - ys.min()]
+                box = [int(b) for b in box]
+                area = float((labeled == i).sum() / (labeled.shape[0] * labeled.shape[1]))
 
-                segm = coco.maskUtils.encode(np.asfortranarray((labeled == i).astype("uint8")))
-                boxes.append([xs.min(), ys.min(), xs.max() - xs.min(), ys.max() - ys.min()])
-            for box in boxes:
-                data.loc[len(data)] = [image, mask, histology, box, segm['counts']]
+                coco_annots.append(annot_info(annot_id, image_id, categories[histology]['id'], segm, area, box))
+                annot_id += 1
 
-    data['image'] = data['image'].map(lambda x: x + ".png")
-    data['mask'] = data['mask'].map(lambda x: x.split("/")[-1])
-    data.sort_values(["image"], inplace=True)
-    data.to_csv(output_file, index=False, sep=",")
+    coco_images = [im for k, im in coco_images.items()]
 
-
-def im_info(id, filename):
-
-
-
-    return {
-        "id": id,
-        "width"
-        : int,
-        "height"
-        : int,
-        "file_name"
-        : str,
-        "license"
-        : int,
-        "flickr_url"
-        : str,
-        "coco_url"
-        : str,
-        "date_captured"
-        : datetime,
-    }
-
-
-def csv_to_coco(df, coco_info, coco_cateogires, output_file):
-    images = []
-
-    for row in df.iterrows()
-
-    coco_output = {
+    import json
+    out = {
         "info": coco_info,
         "licenses": [{
             "id": 1,
             "name": "---",
             "url": "---"
         }],
-        "categories": coco_cateogires,
-        "images": [],
-        "annotations": []
+        "categories": [item for k, item in categories.items()],
+        "images": coco_images,
+        "annotations": coco_annots
+    }
+
+    with open(output_file, "w") as f:
+        json.dump(out, f)
+
+
+def im_info(id, filename, size):
+    return {
+        "id": id,
+        "width": size[1],
+        "height": size[0],
+        "file_name": filename,
+        "license": 1,
+        "flickr_url": "",
+        "coco_url": "",
+        "date_captured": "",
+    }
+
+
+def annot_info(id, img_id, cat_id, segm, area, bbox):
+    return {
+        "id": id,
+        "image_id": img_id,
+        "category_id": cat_id,
+        "segmentation": segm,
+        "area": area,
+        "bbox": bbox,
+        "iscrowd": 0
     }
 
 
@@ -106,6 +139,7 @@ if __name__ == '__main__':
         "017": "NA",
         "018": "AD",
     }
+
     test_histos = {
         "001": "AD",
         "002": "NA",
@@ -148,12 +182,20 @@ if __name__ == '__main__':
         }
     }
 
-    # gen_csv("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_train/", "png",
-    #         "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/", "train.csv",
-    #         train_val_histos)
-    # gen_csv("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_val/", "png",
-    #         "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/", "valid.csv",
-    #         train_val_histos)
-    # gen_csv("/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/images/", "png",
-    #         "/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/masks/", "test.csv",
-    #         test_histos)
+    folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_train/",
+                    "png",
+                    "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
+                    "train.json",
+                    train_val_histos)
+
+    folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_val/",
+                    "png",
+                    "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
+                    "valid.json",
+                    train_val_histos)
+
+    folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/images/",
+                    "png",
+                    "/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/masks/",
+                    "test.json",
+                    test_histos)

@@ -34,10 +34,10 @@ from detectron2.evaluation import (
     PascalVOCDetectionEvaluator,
     SemSegEvaluator,
     verify_results,
+    GianaEvaulator,
 )
 from detectron2.modeling import GeneralizedRCNNWithTTA
-from detectron2.data.datasets import register_coco_instances
-
+from detectron2.utils.register_datasets import register_polyp_datasets
 
 class Trainer(DefaultTrainer):
     """
@@ -82,6 +82,10 @@ class Trainer(DefaultTrainer):
             return PascalVOCDetectionEvaluator(dataset_name)
         if evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
+        if evaluator_type == "giana":
+            evaluator_list.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
+            evaluator_list.append(GianaEvaulator(dataset_name, output_folder))
+
         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(
@@ -148,47 +152,6 @@ def main(args):
             [hooks.EvalHook(0, lambda: trainer.test_with_TTA(cfg, trainer.model))]
         )
     return trainer.train()
-
-
-def register_polyp_datasets():
-    polyp_datasets = {
-        "CVC-classification_train": {
-            "split": "train.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "cvc-colondb-300_train": {
-            "split": "train.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "cvc-colondb-612_train": {
-            "split": "train.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "cvcvideoclinicdbtest_test": {
-            "split": "test.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "CVC-VideoClinicDBtrain_valid_train": {
-            "split": "train.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "CVC-VideoClinicDBtrain_valid_valid": {
-            "split": "val.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-        "ETIS-LaribPolypDB_train": {
-            "split": "train.json",
-            "thing_classes": ["Polyp", "AD", "N_AD"]
-        },
-    }
-
-    for dataset_name, dataset_data in polyp_datasets.items():
-        annot_file = os.path.join("datasets",dataset_name.split("_")[0], "annotations", dataset_data['split'])
-        root_dir = os.path.join("datasets",dataset_name.split("_")[0], "images")
-        metadata = {
-            "thing_classes": dataset_data['thing_classes']
-        }
-        register_coco_instances(dataset_name, metadata, annot_file, root_dir)
 
 
 if __name__ == "__main__":

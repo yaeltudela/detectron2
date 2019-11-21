@@ -13,6 +13,7 @@ from detectron2.data.build import filter_images_with_few_keypoints
 from detectron2.utils.logger import setup_logger
 from detectron2.utils.visualizer import Visualizer
 
+from detectron2.utils.register_datasets import register_polyp_datasets
 
 def setup(args):
     cfg = get_cfg()
@@ -44,6 +45,8 @@ def parse_args(in_args=None):
 
 
 if __name__ == "__main__":
+
+    register_polyp_datasets()
     args = parse_args()
     logger = setup_logger()
     logger.info("Arguments: " + str(args))

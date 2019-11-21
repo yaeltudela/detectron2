@@ -5,5 +5,5 @@ MODEL:
   RESNETS:
     DEPTH: 50
 DATASETS:
-  TRAIN: ("CVC-classification_train",)
-  TEST: ("cvc-colondb-300_train",)
+  TRAIN: ("CVC-VideoClinicDBtrain_valid_train",)
+  TEST: ("CVC-VideoClinicDBtrain_valid_valid",)
