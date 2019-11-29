@@ -2,13 +2,14 @@ import datetime
 
 import cv2
 import numpy as np
-from pycocotools import coco
 from skimage import measure
+
 
 def close_contour(contour):
     if not np.array_equal(contour[0], contour[-1]):
         contour = np.vstack((contour, contour[0]))
     return contour
+
 
 def binary_mask_to_polygon(binary_mask, tolerance=0):
     """Converts a binary mask to COCO polygon representation
@@ -36,7 +37,7 @@ def binary_mask_to_polygon(binary_mask, tolerance=0):
     return polygons
 
 
-def folders_to_coco(images_dir, images_extension, masks_dir, output_file, histologies_correspondences):
+def folders_to_coco(images_dir, images_extension, masks_dir, output_file, categories, histologies_correspondences=None):
     coco_images = {}
     coco_annots = []
 
@@ -45,23 +46,32 @@ def folders_to_coco(images_dir, images_extension, masks_dir, output_file, histol
 
     images = glob(images_dir + "*." + images_extension)
 
+    if histologies_correspondences is None:
+        categories = {
+            "Polyp": {
+                'id': 1,
+                'name': 'Polyp',
+                'supercategory': 'polyp',
+            }
+        }
+
     for image in images:
         size = cv2.imread(image, 0).shape
         image = image.split("/")[-1]
         coco_images[image] = im_info(image_id, image, size)
-        image_id += 1
         image = image.split(".")[0]
         masks = glob(masks_dir + image + "*")
 
         seq = image.split(".")[0].split("-")[0]
-        histology = histologies_correspondences[seq]
+        histology = histologies_correspondences[seq] if histologies_correspondences is not None else "Polyp"
 
         for mask in masks:
             im_mask = cv2.imread(mask, 0)
             res, labeled = cv2.connectedComponents(im_mask)
 
             # TODO filter small components
-
+            if res > 2:
+                continue
             for i in range(1, res):
                 ys, xs = np.where(labeled == i)
                 segm = binary_mask_to_polygon((labeled == 1).astype('uint8'))
@@ -71,6 +81,8 @@ def folders_to_coco(images_dir, images_extension, masks_dir, output_file, histol
 
                 coco_annots.append(annot_info(annot_id, image_id, categories[histology]['id'], segm, area, box))
                 annot_id += 1
+
+        image_id += 1
 
     coco_images = [im for k, im in coco_images.items()]
 
@@ -117,7 +129,6 @@ def annot_info(id, img_id, cat_id, segm, area, bbox):
 
 
 if __name__ == '__main__':
-    from glob import glob
 
     train_val_histos = {
         "001": "NA",
@@ -179,23 +190,29 @@ if __name__ == '__main__':
             'id': 2,
             'name': 'NA',
             'supercategory': 'polyp',
-        }
+        },
     }
 
-    folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_train/",
-                    "png",
-                    "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
-                    "train.json",
-                    train_val_histos)
+    # folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-classification/images/",
+    #                 "png",
+    #                 "/home/yael/PycharmProjects/detectron2/datasets/CVC-classification/masks/",
+    #                 "train.json",
+    #                 None)
 
-    folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_val/",
-                    "png",
-                    "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
-                    "valid.json",
-                    train_val_histos)
+    # folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_train/",
+    #                 "png",
+    #                 "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
+    #                 "train.json",
+    #                 categories, train_val_histos)
+    #
+    # folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/images_val/",
+    #                 "png",
+    #                 "/home/yael/PycharmProjects/detectron2/datasets/CVC-VideoClinicDBtrain_valid/masks/",
+    #                 "valid.json",
+    #                 categories, train_val_histos)
 
     folders_to_coco("/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/images/",
                     "png",
                     "/home/yael/PycharmProjects/detectron2/datasets/cvcvideoclinicdbtest/masks/",
                     "test.json",
-                    test_histos)
+                    categories, test_histos)

@@ -39,6 +39,8 @@ def create_instances(predictions, image_size):
 
 
 if __name__ == "__main__":
+    from detectron2.utils.register_datasets import register_polyp_datasets
+    register_polyp_datasets()
     parser = argparse.ArgumentParser(
         description="A script that visualizes the json predictions from COCO or LVIS dataset."
     )

@@ -16,8 +16,8 @@ MODEL:
     # Detectron1 uses 2000 proposals per-batch,
     # (See "modeling/rpn/rpn_outputs.py" for details of this legacy issue)
     # which is approximately 1000 proposals per-image since the default batch size for FPN is 2.
-    POST_NMS_TOPK_TRAIN: 5
-    POST_NMS_TOPK_TEST: 5
+    #POST_NMS_TOPK_TRAIN: 5
+    #POST_NMS_TOPK_TEST: 5
     NMS_THRESH: 0.8
     IOU_THRESHOLDS : [0.3, 0.8]
   ROI_HEADS:
@@ -33,15 +33,15 @@ MODEL:
     NUM_CONV: 4
     POOLER_RESOLUTION: 14
 SOLVER:
-  IMS_PER_BATCH: 2
+  IMS_PER_BATCH: 8
   BASE_LR: 0.0025
   WEIGHT_DECAY: 0.0001
-  STEPS: (0, 10935, 17496)
-  MAX_ITER: 21870
+  STEPS: (0, 2733, 4374) # (0, 10935, 17496)
+  MAX_ITER: 5467 #21870
 INPUT:
   MIN_SIZE_TRAIN: (288, 384, )
   MAX_SIZE_TRAIN: 800
-  MIN_SIZE_TEST: 288
+  MIN_SIZE_TEST: 384
   MAX_SIZE_TEST: 800
 TEST:
   DETECTIONS_PER_IMAGE: 1

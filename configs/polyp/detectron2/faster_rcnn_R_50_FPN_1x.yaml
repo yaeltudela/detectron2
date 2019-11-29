@@ -6,4 +6,12 @@ MODEL:
     DEPTH: 50
 DATASETS:
   TRAIN: ("CVC-VideoClinicDBtrain_valid_train",)
-  TEST: ("CVC-VideoClinicDBtrain_valid_valid",)
+  TEST: ("cvcvideoclinicdbtest_test",)
+INPUT:
+  CROP:
+    ENABLED: True
+    SIZE: (0.7,0.9)
+SOLVER:
+  LR_SCHEDULER_NAME: "WarmupCosineLR"
+
+OUTPUT_DIR: "model_test"
