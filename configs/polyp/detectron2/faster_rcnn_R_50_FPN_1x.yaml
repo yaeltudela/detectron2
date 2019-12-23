@@ -5,8 +5,8 @@ MODEL:
   RESNETS:
     DEPTH: 50
 DATASETS:
-  TRAIN: ("CVC-VideoClinicDBtrain_valid_train",)
-  TEST: ("cvcvideoclinicdbtest_test",)
+  TRAIN: ("CVC-VideoClinicDBtrain_valid__train",)
+  TEST: ("cvcvideoclinicdbtest__test",)
 INPUT:
   CROP:
     ENABLED: True

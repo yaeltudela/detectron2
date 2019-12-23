@@ -16,7 +16,7 @@ def get_valid_masks(image, masks):
 
 
 def calc_gt(images_folder, ims_ext, masks_folder, masks_ext, check_histology):
-    df = pd.DataFrame(columns=["image", "mask", "has_polyp", "class", "center_x", "center_y"])
+    df = pd.DataFrame(columns=["image", "mask", "has_polyp", "class", "x_min", "y_min", "x_max", "y_max", "center_x", "center_y"])
 
     def add_row(row):
         df.loc[len(df)] = row
@@ -31,9 +31,10 @@ def calc_gt(images_folder, ims_ext, masks_folder, masks_ext, check_histology):
 
         im_masks = get_valid_masks(image, masks)
         if not im_masks:
-            add_row([im_name, "", 0, "", -1, -1])
+            add_row([im_name, "", 0, "", -1, -1, -1, -1, -1, -1])
         else:
             for im_mask in im_masks:
+                remove_original = False
                 classif = check_histology(image)
                 mask_name = os.path.basename(im_mask)
 
@@ -51,12 +52,19 @@ def calc_gt(images_folder, ims_ext, masks_folder, masks_ext, check_histology):
                             nmask = labels * (labels == l) * 255 / l
                             nmask = nmask
                             cv2.imwrite(nname, nmask.astype("uint8"))
+                            remove_original = True
 
-                        add_row([im_name, mask_name, 1, classif, int(cx), int(cy)])
+                        add_row([im_name, mask_name, 1, classif, xs.min(), ys.min(), xs.max(), ys.max(), int(cx), int(cy)])
 
                 else:
-                    add_row([im_name, "", 0, "", -1, -1])
+                    add_row([im_name, "", 0, "", -1, -1, -1, -1, -1, -1])
 
+                if remove_original:
+                    print("removing {}".format(im_mask))
+                    os.remove(im_mask)
+    df.sort_values(by=['image'], inplace=True)
+    df[['sequence', 'frame']] = df.image.str.split("-", expand=True)
+    df.frame = df.frame.map(lambda x : x.split(".")[0])
     df.to_csv("gt.csv", index=False)
 
 

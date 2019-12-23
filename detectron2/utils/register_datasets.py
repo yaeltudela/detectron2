@@ -6,37 +6,34 @@ from detectron2.data.datasets import load_coco_json
 
 def register_polyp_datasets():
     polyp_datasets = {
-        "CVC-classification_train": {
+        "CVC-classification__train": {
             "split": "train.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana"
         },
-        "cvc-colondb-300_train": {
+        "cvc-colondb-300__train": {
             "split": "train.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana"
         },
-        "cvc-colondb-612_train": {
+        "cvc-colondb-612__train": {
             "split": "train.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana"
         },
-        "cvcvideoclinicdbtest_test": {
-            "dataset_folder": "cvcvideoclinicdbtest",
+        "cvcvideoclinicdbtest__test": {
             "split": "test.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana",
             "gt_file": "gt.csv"
         },
-        "CVC-VideoClinicDBtrain_valid_train": {
-            "dataset_folder": "CVC-VideoClinicDBtrain_valid",
+        "CVC-VideoClinicDBtrain_valid__train": {
             "split": "train.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana",
 
         },
-        "CVC-VideoClinicDBtrain_valid_valid": {
-            "dataset_folder": "CVC-VideoClinicDBtrain_valid",
+        "CVC-VideoClinicDBtrain_valid__valid": {
             "split": "valid.json",
             "thing_classes": ["AD", "NA"],
             "evaluator_type": "giana"
@@ -49,9 +46,9 @@ def register_polyp_datasets():
     }
 
     for dataset_name, dataset_data in polyp_datasets.items():
-        annot_file = os.path.join("datasets", "_".join(dataset_name.split("_")[:-1]), "annotations",
+        annot_file = os.path.join("datasets", dataset_name.split("__")[0], "annotations",
                                   dataset_data['split'])
-        root_dir = os.path.join("datasets", "_".join(dataset_name.split("_")[:-1]), "images")
+        root_dir = os.path.join("datasets", dataset_name.split("__")[0], "images")
         metadata = {
             "thing_classes": dataset_data['thing_classes'],
             "thing_dataset_id_to_contiguous_id": {i+1: i for i, k in enumerate(dataset_data['thing_classes'])}
