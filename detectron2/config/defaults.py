@@ -79,6 +79,16 @@ _C.INPUT.FORMAT = "BGR"
 # Mask R-CNN supports either "polygon" or "bitmask" as ground truth.
 _C.INPUT.MASK_FORMAT = "polygon"  # alternative: "bitmask"
 
+_C.INPUT.HFLIP = False
+
+_C.INPUT.COLOR_JITTER = CN({"ENABLED": False})
+_C.INPUT.COLOR_JITTER.BRIGHTNESS = (1., 1.)
+_C.INPUT.COLOR_JITTER.CONTRAST = (1., 1.)
+_C.INPUT.COLOR_JITTER.SATURATION = (1., 1.)
+_C.INPUT.COLOR_JITTER.HUE = (1., 1.)
+
+_C.INPUT.GBLUR_K_SIZE = 3
+_C.INPUT.GBLUR_PROB_TRAIN = 0.0
 
 # -----------------------------------------------------------------------------
 # Dataset
@@ -504,6 +514,7 @@ _C.SOLVER.WARMUP_FACTOR = 1.0 / 1000
 _C.SOLVER.WARMUP_ITERS = 1000
 _C.SOLVER.WARMUP_METHOD = "linear"
 
+# Save a checkpoint after every this number of iterations
 _C.SOLVER.CHECKPOINT_PERIOD = 5000
 
 # Number of images per batch across all machines.

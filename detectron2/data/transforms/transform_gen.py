@@ -17,7 +17,7 @@ from fvcore.transforms.transform import (
 )
 from PIL import Image
 
-from .transform import ExtentTransform, ResizeTransform
+from .transform import ExtentTransform, ResizeTransform, GaussianBlurTransform
 
 __all__ = [
     "RandomBrightness",
@@ -31,6 +31,7 @@ __all__ = [
     "ResizeShortestEdge",
     "TransformGen",
     "apply_transform_gens",
+    "RandomGaussianBlur"
 ]
 
 
@@ -39,7 +40,7 @@ def check_dtype(img):
         type(img)
     )
     assert not isinstance(img.dtype, np.integer) or (
-        img.dtype == np.uint8
+            img.dtype == np.uint8
     ), "[TransformGen] Got image of type {}, use uint8 or floating points instead!".format(
         img.dtype
     )
@@ -93,7 +94,7 @@ class TransformGen(metaclass=ABCMeta):
             argstr = []
             for name, param in sig.parameters.items():
                 assert (
-                    param.kind != param.VAR_POSITIONAL and param.kind != param.VAR_KEYWORD
+                        param.kind != param.VAR_POSITIONAL and param.kind != param.VAR_KEYWORD
                 ), "The default __repr__ doesn't support *args or **kwargs"
                 assert hasattr(self, name), (
                     "Attribute {} not found! "
@@ -169,7 +170,7 @@ class ResizeShortestEdge(TransformGen):
     """
 
     def __init__(
-        self, short_edge_length, max_size=sys.maxsize, sample_style="range", interp=Image.BILINEAR
+            self, short_edge_length, max_size=sys.maxsize, sample_style="range", interp=Image.BILINEAR
     ):
         """
         Args:
@@ -409,6 +410,22 @@ class RandomLighting(TransformGen):
         return BlendTransform(
             src_image=self.eigen_vecs.dot(weights * self.eigen_vals), src_weight=1.0, dst_weight=1.0
         )
+
+
+class RandomGaussianBlur(TransformGen):
+
+    def __init__(self, kernel_size, prob=0.5):
+        self.kernel_size = kernel_size
+        self.prob = prob
+        if self.kernel_size is None:
+            self.kernel_size = None
+
+    def get_transform(self, img):
+        do = self._rand_range() < self.prob
+        if do:
+            return GaussianBlurTransform(self.kernel_size)
+        else:
+            return NoOpTransform()
 
 
 def apply_transform_gens(transform_gens, img):

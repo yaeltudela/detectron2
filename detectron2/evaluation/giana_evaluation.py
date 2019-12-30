@@ -22,7 +22,7 @@ class GianaEvaulator(DatasetEvaluator):
         self.sequences, self.gt = self._load_gt()
 
     def _load_gt(self):
-        gt_df = pd.read_csv(os.path.join(self.dataset_folder, "annotations", "gt.csv"))
+        gt_df = pd.read_csv(os.path.join(self.dataset_folder, "gt.csv"))
         sequences = gt_df.sequence.nunique()
 
         return sequences, gt_df
@@ -46,7 +46,7 @@ class GianaEvaulator(DatasetEvaluator):
         return False
 
     def _is_polyp_classificated(self, pred, gt):
-
+        pass
 
     def _is_polyp_detected(self, pred, gt):
         pass

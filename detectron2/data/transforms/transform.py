@@ -2,11 +2,12 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 # File: transform.py
 
+import cv2
 import numpy as np
-from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform
 from PIL import Image
+from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform
 
-__all__ = ["ExtentTransform", "ResizeTransform"]
+__all__ = ["ExtentTransform", "ResizeTransform", "GaussianBlurTransform"]
 
 
 class ExtentTransform(Transform):
@@ -91,6 +92,21 @@ class ResizeTransform(Transform):
 
     def apply_segmentation(self, segmentation):
         segmentation = self.apply_image(segmentation, interp=Image.NEAREST)
+        return segmentation
+
+
+class GaussianBlurTransform(Transform):
+    def __init__(self, kernel):
+        super().__init__()
+        self._set_attributes(locals())
+
+    def apply_coords(self, coords: np.ndarray):
+        return coords
+
+    def apply_image(self, img: np.ndarray):
+        return cv2.GaussianBlur(img, self.kernel, sigmaX=1)
+
+    def apply_segmentation(self, segmentation: np.ndarray) -> np.ndarray:
         return segmentation
 
 

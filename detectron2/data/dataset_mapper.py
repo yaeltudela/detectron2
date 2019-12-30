@@ -98,7 +98,9 @@ class DatasetMapper:
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.
-        dataset_dict["image"] = torch.as_tensor(image.transpose(2, 0, 1).astype("float32"))
+        dataset_dict["image"] = torch.as_tensor(
+            image.transpose(2, 0, 1).astype("float32")
+        ).contiguous()
         # Can use uint8 if it turns out to be slow some day
 
         # USER: Remove if you don't use pre-computed proposals.
@@ -145,3 +147,5 @@ class DatasetMapper:
             sem_seg_gt = torch.as_tensor(sem_seg_gt.astype("long"))
             dataset_dict["sem_seg"] = sem_seg_gt
         return dataset_dict
+
+

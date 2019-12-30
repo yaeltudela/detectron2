@@ -7,6 +7,7 @@ typical object detection data pipeline.
 """
 import logging
 import numpy as np
+import pycocotools.mask as mask_util
 import torch
 from fvcore.common.file_io import PathManager
 from PIL import Image, ImageOps
@@ -19,6 +20,7 @@ from detectron2.structures import (
     Keypoints,
     PolygonMasks,
     RotatedBoxes,
+    polygons_to_bitmask,
 )
 
 from . import transforms as T
@@ -166,8 +168,25 @@ def transform_instance_annotations(
 
     if "segmentation" in annotation:
         # each instance contains 1 or more polygons
-        polygons = [np.asarray(p).reshape(-1, 2) for p in annotation["segmentation"]]
-        annotation["segmentation"] = [p.reshape(-1) for p in transforms.apply_polygons(polygons)]
+        segm = annotation["segmentation"]
+        if isinstance(segm, list):
+            # polygons
+            polygons = [np.asarray(p).reshape(-1, 2) for p in segm]
+            annotation["segmentation"] = [
+                p.reshape(-1) for p in transforms.apply_polygons(polygons)
+            ]
+        elif isinstance(segm, dict):
+            # RLE
+            assert tuple(segm["size"]) == image_size
+            mask = mask_util.decode(segm)
+            mask = transforms.apply_segmentation(mask)
+            annotation["segmentation"] = mask
+        else:
+            raise ValueError(
+                "Cannot transform segmentation of type '{}'!"
+                "Supported types are: polygons as list[list[float] or ndarray],"
+                " COCO-style RLE as a dict.".format(type(segm))
+            )
 
     if "keypoints" in annotation:
         keypoints = transform_keypoint_annotations(
@@ -238,12 +257,33 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     target.gt_classes = classes
 
     if len(annos) and "segmentation" in annos[0]:
-        polygons = [obj["segmentation"] for obj in annos]
+        segms = [obj["segmentation"] for obj in annos]
         if mask_format == "polygon":
-            masks = PolygonMasks(polygons)
+            masks = PolygonMasks(segms)
         else:
             assert mask_format == "bitmask", mask_format
-            masks = BitMasks.from_polygon_masks(polygons, *image_size)
+            masks = []
+            for segm in segms:
+                if isinstance(segm, list):
+                    # polygon
+                    masks.append(polygons_to_bitmask(segm, *image_size))
+                elif isinstance(segm, dict):
+                    # COCO RLE
+                    masks.append(mask_util.decode(segm))
+                elif isinstance(segm, np.ndarray):
+                    assert segm.ndim == 2, "Expect segmentation of 2 dimensions, got {}.".format(
+                        segm.ndim
+                    )
+                    # mask array
+                    masks.append(segm)
+                else:
+                    raise ValueError(
+                        "Cannot convert segmentation of type '{}' to BitMasks!"
+                        "Supported types are: polygons as list[list[float] or ndarray],"
+                        " COCO-style RLE as a dict, or a full-image segmentation mask "
+                        "as a 2D ndarray.".format(type(segm))
+                    )
+            masks = BitMasks(torch.stack([torch.from_numpy(x) for x in masks]))
         target.gt_masks = masks
 
     if len(annos) and "keypoints" in annos[0]:
@@ -398,10 +438,23 @@ def build_transform_gen(cfg, is_train):
         min_size = cfg.INPUT.MIN_SIZE_TRAIN
         max_size = cfg.INPUT.MAX_SIZE_TRAIN
         sample_style = cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING
+        gaussian_blur_prob = cfg.INPUT.GBLUR_PROB_TRAIN
+        gaussian_blur_kernel = (cfg.INPUT.GBLUR_K_SIZE, cfg.INPUT.GBLUR_K_SIZE)
+        color_jitter = cfg.INPUT.COLOR_JITTER.ENABLED
+        brightness_range = cfg.INPUT.COLOR_JITTER.BRIGHTNESS
+        contrast_range = cfg.INPUT.COLOR_JITTER.CONTRAST
+        saturation_range = cfg.INPUT.COLOR_JITTER.SATURATION
+        hue_range = cfg.INPUT.COLOR_JITTER.HUE
+        hflip = cfg.INPUT.HFLIP
     else:
         min_size = cfg.INPUT.MIN_SIZE_TEST
         max_size = cfg.INPUT.MAX_SIZE_TEST
         sample_style = "choice"
+        gaussian_blur_prob = 0
+        gaussian_blur_kernel = (cfg.INPUT.GBLUR_K_SIZE, cfg.INPUT.GBLUR_K_SIZE)
+        color_jitter = False
+        hflip = False
+
     if sample_style == "range":
         assert len(min_size) == 2, "more than 2 ({}) min_size(s) are provided for ranges".format(
             len(min_size)
@@ -411,6 +464,15 @@ def build_transform_gen(cfg, is_train):
     tfm_gens = []
     tfm_gens.append(T.ResizeShortestEdge(min_size, max_size, sample_style))
     if is_train:
-        tfm_gens.append(T.RandomFlip())
+        if hflip:
+            tfm_gens.append(T.RandomFlip())
+        tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel))
+        if color_jitter:
+            assert len(brightness_range) == 2, "brightness must be a tuple of two floats."
+            tfm_gens.append(T.RandomBrightness(brightness_range[0], brightness_range[1]))
+            assert len(contrast_range) == 2, "brightness must be a tuple of two floats."
+            tfm_gens.append(T.RandomContrast(contrast_range[0], contrast_range[1]))
+            assert len(saturation_range) == 2, "brightness must be a tuple of two floats."
+            tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1]))
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens

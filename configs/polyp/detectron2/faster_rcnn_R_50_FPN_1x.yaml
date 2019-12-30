@@ -5,13 +5,21 @@ MODEL:
   RESNETS:
     DEPTH: 50
 DATASETS:
-  TRAIN: ("CVC-VideoClinicDBtrain_valid__train",)
-  TEST: ("cvcvideoclinicdbtest__test",)
+  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
+  TEST: ("CVC_VideoClinicDB_test",)
 INPUT:
   CROP:
-    ENABLED: True
+    ENABLED: False
     SIZE: (0.7,0.9)
+  COLOR_JITTER:
+    ENABLED: True
+    CONTRAST: (0.9,1.1)
 SOLVER:
+  IMS_PER_BATCH: 2
+  BASE_LR: 0.0025
+  WEIGHT_DECAY: 0.0001
+  STEPS: (0, 2583, 4136) # (0, 10935, 17496)
+  MAX_ITER: 5167
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
 OUTPUT_DIR: "model_test"
