@@ -9,7 +9,9 @@ from detectron2.evaluation.evaluator import DatasetEvaluator
 class GianaEvaulator(DatasetEvaluator):
     def __init__(self, dataset_name, output_dir, thresholds=None):
         self.dataset_name = MetadataCatalog.get(dataset_name).name.split("__")[0]
-        self.classes = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
+        self.classes_id = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
+        self.class_id_name = {v: k for k, v in
+                              zip(MetadataCatalog.get(dataset_name).get("thing_classes"), self.classes_id.values())}
         self.dataset_folder = os.path.join("datasets", self.dataset_name)
         self.output_folder = output_dir
 
@@ -22,11 +24,14 @@ class GianaEvaulator(DatasetEvaluator):
 
         self.results = pd.DataFrame(columns=["image", "detected", "localized", "classified", "score"])
 
+        self.make_dirs()
+
+    def make_dirs(self):
+        if not os.path.exists(self.output_folder):
+            os.makedirs(self.output_folder)
+
     def _load_gt(self):
         return pd.read_csv(os.path.join(self.dataset_folder, "gt.csv"))
-
-    def _is_polyp_localizated(self, pred, gt):
-        return False
 
     def _is_polyp_detected(self, pred, gt):
         if pred:
@@ -49,47 +54,70 @@ class GianaEvaulator(DatasetEvaluator):
         sequences = pd.unique(self.results.sequence)
         dets = []
         locs = []
+        classifs = []
         avg_df_detection = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
         avg_df_localization = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
+        avg_df_classification = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
         for sequence in sequences:
-            df_detection = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
+            df_detection = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN", "RT"])
             df_localization = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
+            df_classification = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
             filtered = self.results[self.results.sequence == sequence]
             print(filtered)
             for threshold in self.thresholds:
                 th_cond = (filtered.score >= threshold) | (filtered.score == -1)
-                thresholded = filtered[th_cond]
+                over_threshold = filtered[th_cond]
                 under_threshold = filtered[~th_cond]
 
-                det = thresholded.drop_duplicates(subset="image", keep="first").detected.value_counts()
-                under_det = under_threshold.drop_duplicates(subset="image", keep="first").detected.value_counts()
+                over_threshold_det = over_threshold.drop_duplicates(subset="image")
+                under_threshold_det = under_threshold.drop_duplicates(subset="image")
+
+                det = over_threshold_det.detected.value_counts()
+                under_det = under_threshold_det.detected.value_counts()
                 print(det)
                 det_tp = det.TP if "TP" in det.keys() else 0
                 det_fp = det.FP if "FP" in det.keys() else 0
-                det_tn = (det.TN if "TN" in det.keys() else 0) + (under_det.FP if "FP" in under_threshold.keys() else 0)
-                det_fn = (det.FN if "FN" in det.keys() else 0) + (under_det.TP if "TP" in under_threshold.keys() else 0)
-                self._add_row(df_detection, [threshold, det_tp, det_fp, det_tn, det_fn])
+                det_tn = (det.TN if "TN" in det.keys() else 0) + (under_det.FP if "FP" in under_det.keys() else 0)
+                det_fn = (det.FN if "FN" in det.keys() else 0) + (under_det.TP if "TP" in under_det.keys() else 0)
+                first_polyp = over_threshold_det[over_threshold_det.detected == "FN"].frame.apply(
+                    lambda x: int(x.split(".")[0])).min()
+                first_det_polyp = over_threshold_det[over_threshold_det.detected == "TP"].frame.apply(
+                    lambda x: int(x.split(".")[0])).min()
+                det_rt = first_det_polyp - first_polyp if (first_det_polyp - first_polyp) > 0 else 0
+                self._add_row(df_detection, [threshold, det_tp, det_fp, det_tn, det_fn, det_rt])
 
-                loc = thresholded.localized.value_counts()
+                loc = over_threshold.localized.value_counts()
                 under_loc = under_threshold.localized.value_counts()
 
                 loc_tp = loc.TP if "TP" in loc.keys() else 0
                 loc_fp = loc.FP if "FP" in loc.keys() else 0
-                loc_tn = (loc.TN if "TN" in loc.keys() else 0) + (under_det.FP if "FP" in under_loc.keys() else 0)
-                loc_fn = (loc.FN if "FN" in loc.keys() else 0) + (under_det.TP if "TP" in under_loc.keys() else 0)
+                loc_tn = (loc.TN if "TN" in loc.keys() else 0) + (under_loc.FP if "FP" in under_loc.keys() else 0)
+                loc_fn = (loc.FN if "FN" in loc.keys() else 0) + (under_loc.TP if "TP" in under_loc.keys() else 0)
                 self._add_row(df_localization, [threshold, loc_tp, loc_fp, loc_tn, loc_fn])
+
+                clasif = over_threshold[over_threshold.localized == "TP"].classified.value_counts()
+
+                class_tp = clasif.TP if "TP" in clasif.keys() else 0
+                class_fp = clasif.FP if "FP" in clasif.keys() else 0
+                class_tn = clasif.TN if "TN" in clasif.keys() else 0
+                class_fn = clasif.FN if "FN" in clasif.keys() else 0
+                self._add_row(df_classification, [threshold, class_tp, class_fp, class_tn, class_fn])
 
             df_detection.to_csv(self.output_folder + "/d{}.csv".format(sequence), index=False)
             df_localization.to_csv(self.output_folder + "/l{}.csv".format(sequence), index=False)
+            df_classification.to_csv(self.output_folder + "/c{}.csv".format(sequence), index=False)
             dets.append(df_detection)
             locs.append(df_localization)
+            classifs.append(df_classification)
 
-        for det, loc in zip(dets, locs):
+        for det, loc, classif in zip(dets, locs, classifs):
             avg_df_detection = pd.concat([avg_df_detection, det])
+            avg_df_localization = pd.concat([avg_df_localization, loc])
             avg_df_localization = pd.concat([avg_df_localization, loc])
 
         avg_df_detection.groupby("threshold").count().to_csv("d_avg.csv")
         avg_df_localization.groupby("threshold").count().to_csv("l_avg.csv")
+        avg_df_classification.groupby("threshold").count().to_csv("c_avg.csv")
 
         self.results.to_csv(self.output_folder + "/results.csv", index=False)
 
@@ -126,7 +154,8 @@ class GianaEvaulator(DatasetEvaluator):
                                 gt_centers.remove(center)
                                 gt_classifcations.remove(gt_class)
                                 localization_response = "TP"
-                                classification_response = classif
+                                classification_response = self._is_polyp_classified(self.class_id_name[classif.item()], gt_class)
+
                                 break
                             else:
                                 checked += 1
@@ -166,3 +195,15 @@ class GianaEvaulator(DatasetEvaluator):
                 classifcations.append(row['class'])
                 centers.append((row.center_x, row.center_y))
         return has_polyp, classifcations, centers
+
+    def _is_polyp_classified(self, pred, gt):
+        if pred == gt:
+            if pred == 'AD':
+                return "TP"
+            else:
+                return "TN"
+        else:
+            if pred == 'AD':
+                return "FN"
+            else:
+                return "TN"

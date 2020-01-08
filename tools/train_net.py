@@ -83,8 +83,8 @@ class Trainer(DefaultTrainer):
         elif evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
         if evaluator_type == "giana":
-            evaluator_list.append(GianaEvaulator(dataset_name, output_folder))
             evaluator_list.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
+            evaluator_list.append(GianaEvaulator(dataset_name, output_folder))
 
         if len(evaluator_list) == 0:
             raise NotImplementedError(
