@@ -13,7 +13,10 @@ class GianaEvaulator(DatasetEvaluator):
         self.class_id_name = {v: k for k, v in
                               zip(MetadataCatalog.get(dataset_name).get("thing_classes"), self.classes_id.values())}
         self.dataset_folder = os.path.join("datasets", self.dataset_name)
-        self.output_folder = output_dir
+        self.output_folder = os.path.join(output_dir, "giana")
+        self.detection_folder = os.path.join(output_dir, "detection")
+        self.localization_folder = os.path.join(output_dir, "localization")
+        self.classification_folder = os.path.join(output_dir, "classification")
 
         if thresholds is None:
             self.thresholds = [x / 10 for x in range(10)]
@@ -29,6 +32,13 @@ class GianaEvaulator(DatasetEvaluator):
     def make_dirs(self):
         if not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
+        if not os.path.exists(self.detection_folder):
+            os.makedirs(self.detection_folder)
+        if not os.path.exists(self.localization_folder):
+            os.makedirs(self.localization_folder)
+        if not os.path.exists(self.classification_folder):
+            os.makedirs(self.classification_folder)
+
 
     def _load_gt(self):
         return pd.read_csv(os.path.join(self.dataset_folder, "gt.csv"))
@@ -49,7 +59,6 @@ class GianaEvaulator(DatasetEvaluator):
         pass
 
     def evaluate(self):
-        print(self.results)
         self.results[['sequence', 'frame']] = self.results.image.str.split("-", expand=True)
         sequences = pd.unique(self.results.sequence)
         dets = []
@@ -60,21 +69,20 @@ class GianaEvaulator(DatasetEvaluator):
         avg_df_classification = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
         for sequence in sequences:
             df_detection = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN", "RT"])
-            df_localization = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
+            df_localization = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN", "RT"])
             df_classification = pd.DataFrame(columns=["threshold", "TP", "FP", "TN", "FN"])
             filtered = self.results[self.results.sequence == sequence]
-            print(filtered)
+            filtered_det = self.results[self.results.sequence == sequence].drop_duplicates(subset="image")
             for threshold in self.thresholds:
                 th_cond = (filtered.score >= threshold) | (filtered.score == -1)
                 over_threshold = filtered[th_cond]
                 under_threshold = filtered[~th_cond]
 
-                over_threshold_det = over_threshold.drop_duplicates(subset="image")
-                under_threshold_det = under_threshold.drop_duplicates(subset="image")
+                over_threshold_det = filtered_det[th_cond].drop_duplicates(subset="image")
+                under_threshold_det = filtered_det[~th_cond].drop_duplicates(subset="image")
 
                 det = over_threshold_det.detected.value_counts()
                 under_det = under_threshold_det.detected.value_counts()
-                print(det)
                 det_tp = det.TP if "TP" in det.keys() else 0
                 det_fp = det.FP if "FP" in det.keys() else 0
                 det_tn = (det.TN if "TN" in det.keys() else 0) + (under_det.FP if "FP" in under_det.keys() else 0)
@@ -82,8 +90,9 @@ class GianaEvaulator(DatasetEvaluator):
                 first_polyp = over_threshold_det[over_threshold_det.detected == "FN"].frame.apply(
                     lambda x: int(x.split(".")[0])).min()
                 first_det_polyp = over_threshold_det[over_threshold_det.detected == "TP"].frame.apply(
-                    lambda x: int(x.split(".")[0])).min()
-                det_rt = first_det_polyp - first_polyp if (first_det_polyp - first_polyp) > 0 else 0
+                    lambda x: int(x.split(".")[0]))
+                first_det_polyp = first_det_polyp[first_det_polyp >= first_polyp].min()
+                det_rt = first_det_polyp - first_polyp
                 self._add_row(df_detection, [threshold, det_tp, det_fp, det_tn, det_fn, det_rt])
 
                 loc = over_threshold.localized.value_counts()
@@ -93,7 +102,13 @@ class GianaEvaulator(DatasetEvaluator):
                 loc_fp = loc.FP if "FP" in loc.keys() else 0
                 loc_tn = (loc.TN if "TN" in loc.keys() else 0) + (under_loc.FP if "FP" in under_loc.keys() else 0)
                 loc_fn = (loc.FN if "FN" in loc.keys() else 0) + (under_loc.TP if "TP" in under_loc.keys() else 0)
-                self._add_row(df_localization, [threshold, loc_tp, loc_fp, loc_tn, loc_fn])
+                first_polyp = over_threshold[over_threshold.localized == "FN"].frame.apply(
+                    lambda x: int(x.split(".")[0])).min()
+                first_loc_polyp = over_threshold[over_threshold.localized == "TP"].frame.apply(
+                    lambda x: int(x.split(".")[0]))
+                first_loc_polyp = first_loc_polyp[first_loc_polyp >= first_polyp].min()
+                loc_rt = first_loc_polyp - first_polyp
+                self._add_row(df_localization, [threshold, loc_tp, loc_fp, loc_tn, loc_fn, loc_rt])
 
                 clasif = over_threshold[over_threshold.localized == "TP"].classified.value_counts()
 
@@ -103,23 +118,56 @@ class GianaEvaulator(DatasetEvaluator):
                 class_fn = clasif.FN if "FN" in clasif.keys() else 0
                 self._add_row(df_classification, [threshold, class_tp, class_fp, class_tn, class_fn])
 
-            df_detection.to_csv(self.output_folder + "/d{}.csv".format(sequence), index=False)
-            df_localization.to_csv(self.output_folder + "/l{}.csv".format(sequence), index=False)
-            df_classification.to_csv(self.output_folder + "/c{}.csv".format(sequence), index=False)
+            df_detection.to_csv(os.path.join(self.detection_folder, "d{}.csv".format(sequence)), index=False)
+            df_localization.to_csv(os.path.join(self.localization_folder, "l{}.csv".format(sequence)), index=False)
+            df_classification.to_csv(os.path.join(self.classification_folder, "c{}.csv".format(sequence)), index=False)
             dets.append(df_detection)
             locs.append(df_localization)
             classifs.append(df_classification)
-
+        print("computing Averages and aggregation metrics")
         for det, loc, classif in zip(dets, locs, classifs):
-            avg_df_detection = pd.concat([avg_df_detection, det])
-            avg_df_localization = pd.concat([avg_df_localization, loc])
-            avg_df_localization = pd.concat([avg_df_localization, loc])
+            avg_df_detection = pd.concat([avg_df_detection, det], ignore_index=True, sort=False)
+            avg_df_localization = pd.concat([avg_df_localization, loc], ignore_index=True, sort=False)
+            avg_df_classification = pd.concat([avg_df_classification, classif], ignore_index=True, sort=False)
 
-        avg_df_detection.groupby("threshold").count().to_csv("d_avg.csv")
-        avg_df_localization.groupby("threshold").count().to_csv("l_avg.csv")
-        avg_df_classification.groupby("threshold").count().to_csv("c_avg.csv")
+        avg_df_detection = avg_df_detection.groupby("threshold")
+        stdRT = avg_df_detection.std().RT
+        avg_df_detection = avg_df_detection.sum()
+        avg_df_detection['mRT'] = avg_df_detection.RT.apply(lambda x: x / len(sequences))
+        avg_df_detection['stdRT'] = stdRT
+        avg_df_detection = self._compute_aggregation_metrics(avg_df_detection)
+        avg_df_detection.to_csv(os.path.join(self.detection_folder, "avg.csv"), index=False)
 
-        self.results.to_csv(self.output_folder + "/results.csv", index=False)
+        avg_df_localization = avg_df_localization.groupby("threshold")
+        stdRT = avg_df_localization.std().RT
+        avg_df_localization = avg_df_localization.sum()
+        avg_df_localization['mRT'] = avg_df_localization.RT.apply(lambda x: x / len(sequences))
+        avg_df_localization['stdRT'] = stdRT
+        avg_df_localization = self._compute_aggregation_metrics(avg_df_localization)
+        avg_df_localization.to_csv(os.path.join(self.localization_folder, "avg.csv"), index=False)
+
+        avg_df_classification.groupby("threshold").sum().to_csv(os.path.join(self.classification_folder, "avg.csv"), index=False)
+
+        self.results.to_csv(os.path.join(self.output_folder, "results.csv"), index=False)
+
+    def _compute_aggregation_metrics(self, df):
+        tp = df.TP
+        fp = df.FP
+        tn = df.TN
+        fn = df.TN
+
+        acc = tp / (tp + fp + tn + fn)
+        pre = tp / (tp + fp)
+        rec = tp / (tp + fn)
+        f1core = 2 * pre * rec / (pre + rec)
+
+        df['accuracy'] = acc
+        df["precision"] = pre
+        df["recall"] = rec
+        df["f1score"] = f1core
+
+        return df
+
 
     def _add_row(self, df, row):
         df.loc[len(df)] = row
@@ -204,6 +252,27 @@ class GianaEvaulator(DatasetEvaluator):
                 return "TN"
         else:
             if pred == 'AD':
-                return "FN"
+                return "FP"
             else:
-                return "TN"
+                return "FN"
+
+
+def offline_evaluation(dataset_name, output_dir, results_file):
+    evaluator = GianaEvaulator(dataset_name, output_dir)
+    evaluator.results = pd.read_csv(results_file)
+    evaluator.evaluate()
+
+
+if __name__ == '__main__':
+    from argparse import ArgumentParser
+    from detectron2.utils.register_datasets import register_polyp_datasets
+
+    register_polyp_datasets()
+    ap = ArgumentParser()
+    ap.add_argument("--dataset")
+    ap.add_argument("--output")
+    ap.add_argument("--file")
+    opts = ap.parse_args()
+
+    offline_evaluation(opts.dataset, opts.output, opts.file)
+

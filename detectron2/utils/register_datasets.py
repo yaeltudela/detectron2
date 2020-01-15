@@ -38,12 +38,12 @@ def register_polyp_datasets():
         "CVC_VideoClinicDB_train": {
             "split": "train.json",
             "categories": ["AD", "NAD"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         },
         "CVC_VideoClinicDB_valid": {
             "split": "valid.json",
             "categories": ["AD", "NAD"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         },
         "CVC_VideoClinicDB_test": {
             "split": "test.json",
@@ -53,23 +53,23 @@ def register_polyp_datasets():
         "CVC_ClinicDB": {
             "split": "clinic.json",
             "categories": ["AD", "NAD"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         },
         "CVC_ColonDB": {
             "split": "colon.json",
             "categories": ["AD", "NAD"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         },
         "CVC_HDClassif": {
             "split": "hdClassif.json",
             "categories": ["AD", "NAD"],
             # "categories": ["AD", "NAD", "Polyp"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         },
         "ETIS_LaribPolypDB": {
             "split": "etis.json",
             "categories": ["Polyp"],
-            "evaluator_type": "giana"
+            "evaluator_type": "coco"
         }
 
     }

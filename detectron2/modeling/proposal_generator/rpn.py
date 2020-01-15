@@ -12,6 +12,7 @@ from ..box_regression import Box2BoxTransform
 from ..matcher import Matcher
 from .build import PROPOSAL_GENERATOR_REGISTRY
 from .rpn_outputs import RPNOutputs, find_top_rpn_proposals
+import numpy as np
 
 RPN_HEAD_REGISTRY = Registry("RPN_HEAD")
 """
@@ -99,6 +100,8 @@ class RPN(nn.Module):
         self.positive_fraction       = cfg.MODEL.RPN.POSITIVE_FRACTION
         self.smooth_l1_beta          = cfg.MODEL.RPN.SMOOTH_L1_BETA
         self.loss_weight             = cfg.MODEL.RPN.LOSS_WEIGHT
+        max_size = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE != -1
+        self.max_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE if max_size else np.inf
         # fmt: on
 
         # Map from self.training state to train/test settings
@@ -177,6 +180,7 @@ class RPN(nn.Module):
                 self.post_nms_topk[self.training],
                 self.min_box_side_len,
                 self.training,
+                self.max_box_side_len
             )
             # For RPN-only models, the proposals are the final output and we return them in
             # high-to-low confidence order.

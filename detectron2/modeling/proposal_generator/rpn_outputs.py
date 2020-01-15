@@ -58,6 +58,7 @@ def find_top_rpn_proposals(
     post_nms_topk,
     min_box_side_len,
     training,
+    max_box_side_len
 ):
     """
     For each feature map, select the `pre_nms_topk` highest scoring proposals,
@@ -129,7 +130,7 @@ def find_top_rpn_proposals(
         boxes.clip(image_size)
 
         # filter empty boxes
-        keep = boxes.nonempty(threshold=min_box_side_len)
+        keep = boxes.nonempty(threshold=min_box_side_len, upper_threshold=max_box_side_len)
         lvl = level_ids
         if keep.sum().item() != len(boxes):
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], level_ids[keep]

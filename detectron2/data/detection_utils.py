@@ -454,6 +454,10 @@ def build_transform_gen(cfg, is_train):
         gaussian_blur_kernel = (cfg.INPUT.GBLUR_K_SIZE, cfg.INPUT.GBLUR_K_SIZE)
         color_jitter = False
         hflip = False
+        brightness_range = (1.,1.)
+        contrast_range = (1.,1.)
+        saturation_range = (1.,1.)
+
 
     if sample_style == "range":
         assert len(min_size) == 2, "more than 2 ({}) min_size(s) are provided for ranges".format(
@@ -466,13 +470,13 @@ def build_transform_gen(cfg, is_train):
     if is_train:
         if hflip:
             tfm_gens.append(T.RandomFlip())
-        tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel))
+        tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
         if color_jitter:
             assert len(brightness_range) == 2, "brightness must be a tuple of two floats."
             tfm_gens.append(T.RandomBrightness(brightness_range[0], brightness_range[1]))
-            assert len(contrast_range) == 2, "brightness must be a tuple of two floats."
+            assert len(contrast_range) == 2, "contrast must be a tuple of two floats."
             tfm_gens.append(T.RandomContrast(contrast_range[0], contrast_range[1]))
-            assert len(saturation_range) == 2, "brightness must be a tuple of two floats."
+            assert len(saturation_range) == 2, "saturation must be a tuple of two floats."
             tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1]))
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens
