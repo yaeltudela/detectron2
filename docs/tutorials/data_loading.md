@@ -17,14 +17,14 @@ Here is how `build_detection_{train,test}_loader` work:
    Details about the dataset format and dataset registration can be found in
    [datasets](datasets.html).
 2. Each dict in this list is mapped by a function ("mapper"):
-   * Users can customize this mapping function by specifying the "mapper" argument in
+	 * Users can customize this mapping function by specifying the "mapper" argument in
         `build_detection_{train,test}_loader`. The default mapper is [DatasetMapper]( ../modules/data.html#detectron2.data.DatasetMapper).
-   * The output format of such function can be arbitrary, as long as it is accepted by the consumer of this data loader (usually the model).
-     The outputs of the default mapper, after batching, follow the default model input format documented in
-     [Use Models](https://detectron2.readthedocs.io/tutorials/models.html#model-input-format).
+	 * The output format of such function can be arbitrary, as long as it is accepted by the consumer of this data loader (usually the model).
+	   The outputs of the default mapper, after batching, follow the default model input format documented in
+		 [Use Models](https://detectron2.readthedocs.io/tutorials/models.html#model-input-format).
    * The role of the mapper is to transform the lightweight, canonical representation of a dataset item into a format
      that is ready for the model to consume (including, e.g., read images, perform random data augmentation and convert to torch Tensors).
-     If you would like to perform custom transformations to data, you often want a custom mapper.
+		 If you would like to perform custom transformations to data, you often want a custom mapper.
 3. The outputs of the mapper are batched (simply into a list).
 4. This batched data is the output of the data loader. Typically, it's also the input of
    `model.forward()`.
@@ -49,20 +49,15 @@ def mapper(dataset_dict):
 	dataset_dict["image"] = torch.as_tensor(image.transpose(2, 0, 1).astype("float32"))
 
 	annos = [
-		utils.transform_instance_annotations(obj, transforms, image.shape[1:])
+		utils.transform_instance_annotations(obj, transforms, image.shape[:2])
 		for obj in dataset_dict.pop("annotations")
 		if obj.get("iscrowd", 0) == 0
 	]
-	instances = utils.annotations_to_instances(annos, image.shape[1:])
+	instances = utils.annotations_to_instances(annos, image.shape[:2])
 	dataset_dict["instances"] = utils.filter_empty_instances(instances)
 	return dataset_dict
 
-data_loader = build_detection_train_loader(cfg, mapper=mapper)
-# use this dataloader instead of the default
-```
-Refer to [API documentation of detectron2.data](../modules/data.html) for details.
-
-If you want to change not only the mapper (e.g., to write different sampling or batching logic),
+If you want to do something different (e.g., use different sampling or batching logic),
 you can write your own data loader. The data loader is simply a
 python iterator that produces [the format](models.html) your model accepts.
 You can implement it using any tools you like.

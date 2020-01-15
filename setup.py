@@ -4,7 +4,6 @@
 import glob
 import os
 import shutil
-from os import path
 from setuptools import find_packages, setup
 from typing import List
 import torch
@@ -27,7 +26,7 @@ def get_version():
         from datetime import datetime
 
         date_str = datetime.today().strftime("%y%m%d")
-        version = version + ".post" + date_str
+        version = version + ".dev" + date_str
 
         new_init_py = [l for l in init_py if not l.startswith("__version__")]
         new_init_py.append('__version__ = "{}"\n'.format(version))
@@ -37,13 +36,13 @@ def get_version():
 
 
 def get_extensions():
-    this_dir = path.dirname(path.abspath(__file__))
-    extensions_dir = path.join(this_dir, "detectron2", "layers", "csrc")
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    extensions_dir = os.path.join(this_dir, "detectron2", "layers", "csrc")
 
-    main_source = path.join(extensions_dir, "vision.cpp")
-    sources = glob.glob(path.join(extensions_dir, "**", "*.cpp"))
-    source_cuda = glob.glob(path.join(extensions_dir, "**", "*.cu")) + glob.glob(
-        path.join(extensions_dir, "*.cu")
+    main_source = os.path.join(extensions_dir, "vision.cpp")
+    sources = glob.glob(os.path.join(extensions_dir, "**", "*.cpp"))
+    source_cuda = glob.glob(os.path.join(extensions_dir, "**", "*.cu")) + glob.glob(
+        os.path.join(extensions_dir, "*.cu")
     )
 
     sources = [main_source] + sources
@@ -90,14 +89,14 @@ def get_model_zoo_configs() -> List[str]:
     """
 
     # Use absolute paths while symlinking.
-    source_configs_dir = path.join(path.dirname(path.realpath(__file__)), "configs")
-    destination = path.join(
-        path.dirname(path.realpath(__file__)), "detectron2", "model_zoo", "configs"
+    source_configs_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
+    destination = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), "detectron2", "model_zoo", "configs"
     )
     # Symlink the config directory inside package to have a cleaner pip install.
-    if path.exists(destination):
+    if os.path.exists(destination):
         # Remove stale symlink/directory from a previous build.
-        if path.islink(destination):
+        if os.path.islink(destination):
             os.unlink(destination)
         else:
             shutil.rmtree(destination)
@@ -114,7 +113,7 @@ def get_model_zoo_configs() -> List[str]:
 
 setup(
     name="detectron2",
-    version=get_version(),
+    version="0.1",
     author="FAIR",
     url="https://github.com/facebookresearch/detectron2",
     description="Detectron2 is FAIR's next-generation research "
@@ -132,6 +131,8 @@ setup(
         "tqdm>4.29.0",
         "tensorboard",
         "fvcore",
+        "future",  # used by caffe2
+        "pydot",  # used to save caffe2 SVGs
     ],
     extras_require={"all": ["shapely", "psutil"], "dev": ["flake8", "isort", "black==19.3b0"]},
     ext_modules=get_extensions(),
