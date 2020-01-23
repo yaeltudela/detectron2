@@ -4,12 +4,17 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
+
+  PROPOSAL_GENERATOR:
+    MIN_SIZE: 10
+    MAX_SIZE: 175
 DATASETS:
-  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
-  TEST: ("CVC_VideoClinicDB_test",)
+  TRAIN: ("CVC_VideoClinicDB_train", )
+  TEST: ("CVC_VideoClinicDB_test","CVC_VideoClinicDB_valid",)
 INPUT:
-  CROP:
-    ENABLED: False
+    CROP:
+      ENABLED: False
+  HFLIP: True
 SOLVER:
   IMS_PER_BATCH: 2
   BASE_LR: 0.0025
@@ -18,4 +23,4 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/vanilla"
+OUTPUT_DIR: "results/flip"

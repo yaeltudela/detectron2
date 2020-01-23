@@ -180,7 +180,7 @@ class Boxes:
         self.tensor[:, 2].clamp_(min=0, max=w)
         self.tensor[:, 3].clamp_(min=0, max=h)
 
-    def nonempty(self, threshold: int = 0) -> torch.Tensor:
+    def nonempty(self, threshold: int = 0, upper_threshold: float = np.inf) -> torch.Tensor:
         """
         Find boxes that are non-empty.
         A box is considered empty, if either of its side is no larger than threshold.
@@ -193,7 +193,8 @@ class Boxes:
         box = self.tensor
         widths = box[:, 2] - box[:, 0]
         heights = box[:, 3] - box[:, 1]
-        keep = (widths > threshold) & (heights > threshold)
+        keep = (widths > threshold) & (heights > threshold) & (widths < upper_threshold) & (heights < upper_threshold)
+
         return keep
 
     def __getitem__(self, item: Union[int, slice, torch.BoolTensor]) -> "Boxes":

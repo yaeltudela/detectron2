@@ -39,7 +39,6 @@ class GianaEvaulator(DatasetEvaluator):
         if not os.path.exists(self.classification_folder):
             os.makedirs(self.classification_folder)
 
-
     def _load_gt(self):
         return pd.read_csv(os.path.join(self.dataset_folder, "gt.csv"))
 
@@ -130,44 +129,41 @@ class GianaEvaulator(DatasetEvaluator):
             avg_df_localization = pd.concat([avg_df_localization, loc], ignore_index=True, sort=False)
             avg_df_classification = pd.concat([avg_df_classification, classif], ignore_index=True, sort=False)
 
-        avg_df_detection = avg_df_detection.groupby("threshold")
-        stdRT = avg_df_detection.std().RT
-        avg_df_detection = avg_df_detection.sum()
-        avg_df_detection['mRT'] = avg_df_detection.RT.apply(lambda x: x / len(sequences))
-        avg_df_detection['stdRT'] = stdRT
-        avg_df_detection = self._compute_aggregation_metrics(avg_df_detection)
-        avg_df_detection.to_csv(os.path.join(self.detection_folder, "avg.csv"), index=False)
-
-        avg_df_localization = avg_df_localization.groupby("threshold")
-        stdRT = avg_df_localization.std().RT
-        avg_df_localization = avg_df_localization.sum()
-        avg_df_localization['mRT'] = avg_df_localization.RT.apply(lambda x: x / len(sequences))
-        avg_df_localization['stdRT'] = stdRT
-        avg_df_localization = self._compute_aggregation_metrics(avg_df_localization)
-        avg_df_localization.to_csv(os.path.join(self.localization_folder, "avg.csv"), index=False)
-
-        avg_df_classification.groupby("threshold").sum().to_csv(os.path.join(self.classification_folder, "avg.csv"), index=False)
+        self.compute_average_metrics(avg_df_detection, len(sequences), self.detection_folder)
+        self.compute_average_metrics(avg_df_localization, len(sequences), self.localization_folder)
+        self.compute_average_metrics(avg_df_classification, len(sequences), self.classification_folder)
 
         self.results.to_csv(os.path.join(self.output_folder, "results.csv"), index=False)
+
+    def compute_average_metrics(self, df, sequences, save_folder):
+        df = df.groupby("threshold")
+        if "RT" in df.sum().columns:
+            stdRT = df.std().RT
+            df = df.sum()
+            df['mRT'] = df.RT.apply(lambda x: round(x / sequences, 2))
+            df['stdRT'] = stdRT.round(2)
+        else:
+            df = df.sum()
+        df = self._compute_aggregation_metrics(df)
+        df.to_csv(os.path.join(save_folder, "avg.csv"), index=False)
 
     def _compute_aggregation_metrics(self, df):
         tp = df.TP
         fp = df.FP
         tn = df.TN
-        fn = df.TN
+        fn = df.FN
 
-        acc = tp / (tp + fp + tn + fn)
+        acc = (tp + tn) / (tp + fp + tn + fn)
         pre = tp / (tp + fp)
         rec = tp / (tp + fn)
         f1core = 2 * pre * rec / (pre + rec)
 
-        df['accuracy'] = acc
-        df["precision"] = pre
-        df["recall"] = rec
-        df["f1score"] = f1core
+        df['accuracy'] = acc.round(4)
+        df["precision"] = pre.round(4)
+        df["recall"] = rec.round(4)
+        df["f1score"] = f1core.round(4)
 
         return df
-
 
     def _add_row(self, df, row):
         df.loc[len(df)] = row

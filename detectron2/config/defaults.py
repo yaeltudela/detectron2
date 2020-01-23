@@ -82,6 +82,7 @@ _C.INPUT.FORMAT = "BGR"
 _C.INPUT.MASK_FORMAT = "polygon"  # alternative: "bitmask"
 
 _C.INPUT.HFLIP = False
+_C.INPUT.VFLIP = False
 
 _C.INPUT.COLOR_JITTER = CN({"ENABLED": False})
 _C.INPUT.COLOR_JITTER.BRIGHTNESS = (1., 1.)

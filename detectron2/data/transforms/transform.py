@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform
 
-__all__ = ["ExtentTransform", "ResizeTransform", "GaussianBlurTransform"]
+__all__ = ["ExtentTransform", "ResizeTransform", "GaussianBlurTransform", "RandomHueTransform"]
 
 
 class ExtentTransform(Transform):
@@ -105,6 +105,26 @@ class GaussianBlurTransform(Transform):
 
     def apply_image(self, img: np.ndarray):
         return cv2.GaussianBlur(img, self.kernel, sigmaX=1)
+
+    def apply_segmentation(self, segmentation: np.ndarray) -> np.ndarray:
+        return segmentation
+
+
+class RandomHueTransform(Transform):
+    def __init__(self, hue_factor):
+        super().__init__()
+        self._set_attributes(locals())
+
+    def apply_coords(self, coords: np.ndarray):
+        return coords
+
+    def apply_image(self, img: np.ndarray):
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+        new_h = h + np.uint8(self.hue_factor * 180)
+        n_hsv = cv2.merge([new_h, s, v])
+        return cv2.cvtColor(n_hsv, cv2.COLOR_HSV2BGR)
+
 
     def apply_segmentation(self, segmentation: np.ndarray) -> np.ndarray:
         return segmentation

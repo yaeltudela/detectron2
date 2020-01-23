@@ -18,7 +18,7 @@ from fvcore.transforms.transform import (
 )
 from PIL import Image
 
-from .transform import ExtentTransform, ResizeTransform, GaussianBlurTransform
+#from .transform import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
 
 __all__ = [
     "RandomBrightness",
@@ -32,7 +32,8 @@ __all__ = [
     "ResizeShortestEdge",
     "TransformGen",
     "apply_transform_gens",
-    "RandomGaussianBlur"
+    "RandomGaussianBlur",
+    "RandomHue"
 ]
 
 
@@ -414,6 +415,18 @@ class RandomLighting(TransformGen):
         )
 
 
+class RandomHue(TransformGen):
+
+    def __init__(self, hue_min, hue_max):
+        super()._init()
+        self._init(locals())
+
+    def get_transform(self, img):
+        assert img.shape[-1] == 3, "Hue only works on RGB images"
+        hue_factor = self._rand_range(low=self.hue_min, high=self.hue_max)
+        return RandomHueTransform(hue_factor)
+
+
 class RandomGaussianBlur(TransformGen):
 
     def __init__(self, kernel_size, prob=0.5):
@@ -462,3 +475,16 @@ def apply_transform_gens(transform_gens, img):
         img = tfm.apply_image(img)
         tfms.append(tfm)
     return img, TransformList(tfms)
+
+
+if __name__ == '__main__':
+    import cv2
+    from detectron2.data.transforms import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
+
+    a = cv2.imread('/home/yael/dummy.jpg')
+    c, _ = apply_transform_gens([RandomHue(-0.05, 0.05)], a)
+
+    cv2.imshow("a", a)
+    cv2.imshow("c", c)
+
+    cv2.waitKey()
