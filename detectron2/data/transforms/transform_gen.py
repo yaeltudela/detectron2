@@ -18,7 +18,7 @@ from fvcore.transforms.transform import (
 )
 from PIL import Image
 
-#from .transform import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
+from .transform import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
 
 __all__ = [
     "RandomBrightness",
@@ -424,6 +424,7 @@ class RandomHue(TransformGen):
     def get_transform(self, img):
         assert img.shape[-1] == 3, "Hue only works on RGB images"
         hue_factor = self._rand_range(low=self.hue_min, high=self.hue_max)
+        print(hue_factor)
         return RandomHueTransform(hue_factor)
 
 
@@ -481,8 +482,8 @@ if __name__ == '__main__':
     import cv2
     from detectron2.data.transforms import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
 
-    a = cv2.imread('/home/yael/dummy.jpg')
-    c, _ = apply_transform_gens([RandomHue(-0.05, 0.05)], a)
+    a = cv2.imread('/home/devsodin/dummy.jpg')
+    c, _ = apply_transform_gens([RandomHue(-0.5, -0.25)], a)
 
     cv2.imshow("a", a)
     cv2.imshow("c", c)
