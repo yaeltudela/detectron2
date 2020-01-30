@@ -147,5 +147,3 @@ class DatasetMapper:
             sem_seg_gt = torch.as_tensor(sem_seg_gt.astype("long"))
             dataset_dict["sem_seg"] = sem_seg_gt
         return dataset_dict
-
-

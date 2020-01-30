@@ -4,6 +4,7 @@
 import glob
 import os
 import shutil
+from os import path
 from setuptools import find_packages, setup
 from typing import List
 import torch
@@ -36,13 +37,13 @@ def get_version():
 
 
 def get_extensions():
-    this_dir = os.path.dirname(os.path.abspath(__file__))
-    extensions_dir = os.path.join(this_dir, "detectron2", "layers", "csrc")
+    this_dir = path.dirname(path.abspath(__file__))
+    extensions_dir = path.join(this_dir, "detectron2", "layers", "csrc")
 
-    main_source = os.path.join(extensions_dir, "vision.cpp")
-    sources = glob.glob(os.path.join(extensions_dir, "**", "*.cpp"))
-    source_cuda = glob.glob(os.path.join(extensions_dir, "**", "*.cu")) + glob.glob(
-        os.path.join(extensions_dir, "*.cu")
+    main_source = path.join(extensions_dir, "vision.cpp")
+    sources = glob.glob(path.join(extensions_dir, "**", "*.cpp"))
+    source_cuda = glob.glob(path.join(extensions_dir, "**", "*.cu")) + glob.glob(
+        path.join(extensions_dir, "*.cu")
     )
 
     sources = [main_source] + sources
@@ -89,14 +90,14 @@ def get_model_zoo_configs() -> List[str]:
     """
 
     # Use absolute paths while symlinking.
-    source_configs_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "configs")
-    destination = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "detectron2", "model_zoo", "configs"
+    source_configs_dir = path.join(path.dirname(path.realpath(__file__)), "configs")
+    destination = path.join(
+        path.dirname(path.realpath(__file__)), "detectron2", "model_zoo", "configs"
     )
     # Symlink the config directory inside package to have a cleaner pip install.
-    if os.path.exists(destination):
+    if path.exists(destination):
         # Remove stale symlink/directory from a previous build.
-        if os.path.islink(destination):
+        if path.islink(destination):
             os.unlink(destination)
         else:
             shutil.rmtree(destination)
@@ -113,7 +114,7 @@ def get_model_zoo_configs() -> List[str]:
 
 setup(
     name="detectron2",
-    version="0.1",
+    version=get_version(),
     author="FAIR",
     url="https://github.com/facebookresearch/detectron2",
     description="Detectron2 is FAIR's next-generation research "
@@ -123,7 +124,7 @@ setup(
     python_requires=">=3.6",
     install_requires=[
         "termcolor>=1.1",
-        "Pillow>=6.0",
+        "Pillow==6.2.2",  # torchvision currently does not work with Pillow 7
         "yacs>=0.1.6",
         "tabulate",
         "cloudpickle",
@@ -134,7 +135,10 @@ setup(
         "future",  # used by caffe2
         "pydot",  # used to save caffe2 SVGs
     ],
-    extras_require={"all": ["shapely", "psutil"], "dev": ["flake8", "isort", "black==19.3b0"]},
+    extras_require={
+        "all": ["shapely", "psutil"],
+        "dev": ["flake8", "isort", "black==19.3b0", "flake8-bugbear", "flake8-comprehensions"],
+    },
     ext_modules=get_extensions(),
     cmdclass={"build_ext": torch.utils.cpp_extension.BuildExtension},
 )

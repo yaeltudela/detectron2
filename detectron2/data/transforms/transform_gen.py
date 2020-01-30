@@ -42,7 +42,7 @@ def check_dtype(img):
         type(img)
     )
     assert not isinstance(img.dtype, np.integer) or (
-            img.dtype == np.uint8
+        img.dtype == np.uint8
     ), "[TransformGen] Got image of type {}, use uint8 or floating points instead!".format(
         img.dtype
     )
@@ -96,7 +96,7 @@ class TransformGen(metaclass=ABCMeta):
             argstr = []
             for name, param in sig.parameters.items():
                 assert (
-                        param.kind != param.VAR_POSITIONAL and param.kind != param.VAR_KEYWORD
+                    param.kind != param.VAR_POSITIONAL and param.kind != param.VAR_KEYWORD
                 ), "The default __repr__ doesn't support *args or **kwargs"
                 assert hasattr(self, name), (
                     "Attribute {} not found! "
@@ -173,7 +173,7 @@ class ResizeShortestEdge(TransformGen):
     """
 
     def __init__(
-            self, short_edge_length, max_size=sys.maxsize, sample_style="range", interp=Image.BILINEAR
+        self, short_edge_length, max_size=sys.maxsize, sample_style="range", interp=Image.BILINEAR
     ):
         """
         Args:

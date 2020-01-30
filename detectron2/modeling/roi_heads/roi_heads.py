@@ -713,13 +713,3 @@ class StandardROIHeads(ROIHeads):
             keypoint_logits = self.keypoint_head(keypoint_features)
             keypoint_rcnn_inference(keypoint_logits, instances)
             return instances
-
-@ROI_HEADS_REGISTRY.register()
-class FocalROIHeads(ROIHeads):
-
-    def __init__(self, cfg, input_shape: Dict[str, ShapeSpec]):
-        super().__init__(cfg, input_shape)
-
-    def forward(self, images, features, proposals, targets=None):
-        pass
-
