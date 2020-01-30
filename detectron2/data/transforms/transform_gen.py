@@ -482,7 +482,7 @@ if __name__ == '__main__':
     import cv2
     from detectron2.data.transforms import ExtentTransform, ResizeTransform, GaussianBlurTransform, RandomHueTransform
 
-    a = cv2.imread('/home/devsodin/dummy.jpg')
+    a = cv2.imread('/home/yael/dummy.jpg')
     c, _ = apply_transform_gens([RandomHue(-0.5, -0.25)], a)
 
     cv2.imshow("a", a)

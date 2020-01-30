@@ -7,7 +7,7 @@ from detectron2.evaluation.evaluator import DatasetEvaluator
 
 
 class GianaEvaulator(DatasetEvaluator):
-    def __init__(self, dataset_name, output_dir, thresholds=None):
+    def __init__(self, dataset_name, output_dir, thresholds=None, old_metric=False):
         self.dataset_name = MetadataCatalog.get(dataset_name).name.split("__")[0]
         self.classes_id = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
         self.class_id_name = {v: k for k, v in
@@ -17,6 +17,7 @@ class GianaEvaulator(DatasetEvaluator):
         self.detection_folder = os.path.join(output_dir, "detection")
         self.localization_folder = os.path.join(output_dir, "localization")
         self.classification_folder = os.path.join(output_dir, "classification")
+        self.old_metric = old_metric
 
         if thresholds is None:
             self.thresholds = [x / 10 for x in range(10)]
@@ -180,7 +181,7 @@ class GianaEvaulator(DatasetEvaluator):
             scores = fields['scores'].cpu().numpy()
             pred_class = fields['pred_classes']
 
-            gt_has_polyp, gt_classifcations, gt_centers = self.get_gt_info(im_name)
+            gt_has_polyp, gt_classifcations, gt_centers, gt_boxes = self.get_gt_info(im_name)
             pred_has_polyp = len(pred_boxes) > 0
             detection_response = self._is_polyp_detected(pred_has_polyp, gt_has_polyp)
 
@@ -189,16 +190,22 @@ class GianaEvaulator(DatasetEvaluator):
                 if gt_has_polyp:
                     # FPS and TPS
                     # Find matches from all predictions with groundTruth
-                    for box, score, classif in zip(pred_boxes, scores, pred_class):
+                    for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
                         to_check = len(gt_centers)
                         checked = 0
-                        for gt_class, center in zip(gt_classifcations, gt_centers):
+                        for gt_classif, gt_center, gt_box in zip(gt_classifcations, gt_centers, gt_boxes):
                             # if pred box cross gt center; is valid localization
-                            if box[0] < center[0] < box[2] and box[1] < center[1] < box[3]:
-                                gt_centers.remove(center)
-                                gt_classifcations.remove(gt_class)
+                            if self.old_metric:
+                                pred_center = [(pred_box[2] - pred_box[0])/ 2, (pred_box[3] - pred_box[1])/ 2]
+                                eval_condition = gt_box[0] < pred_center[0] < gt_box[2] and gt_box[1] < pred_center[1] < gt_box[3]
+                            else:
+                                eval_condition = pred_box[0] < gt_center[0] < pred_box[2] and pred_box[1] < gt_center[1] < pred_box[3]
+
+                            if eval_condition:
+                                gt_centers.remove(gt_center)
+                                gt_classifcations.remove(gt_classif)
                                 localization_response = "TP"
-                                classification_response = self._is_polyp_classified(self.class_id_name[classif.item()], gt_class)
+                                classification_response = self._is_polyp_classified(self.class_id_name[pred_classif.item()], gt_classif)
 
                                 break
                             else:
@@ -207,19 +214,19 @@ class GianaEvaulator(DatasetEvaluator):
                                     localization_response = "FP"
                                     classification_response = "non-eval"
                                     break
-                        row = [im_name, detection_response, localization_response, classification_response, score]
+                        row = [im_name, detection_response, localization_response, classification_response, pred_score]
                         self._add_row(self.results, row)
 
                 else:
                     localization_response = "FP"
-                    for box, score, classif in zip(pred_boxes, scores, pred_class):
-                        row = [im_name, detection_response, localization_response, "non-eval", score]
+                    for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
+                        row = [im_name, detection_response, localization_response, "non-eval", pred_score]
                         self._add_row(self.results, row)
             # Model has no preds for the frame
             else:
                 if gt_has_polyp:
                     localization_response = "FN"
-                    for gt_class, center in zip(gt_classifcations, gt_centers):
+                    for gt_classif, gt_center in zip(gt_classifcations, gt_centers):
                         row = [im_name, detection_response, localization_response, "non-eval", -1]
                         self._add_row(self.results, row)
                 else:
@@ -230,6 +237,7 @@ class GianaEvaulator(DatasetEvaluator):
     def get_gt_info(self, im_name):
         classifcations = []
         centers = []
+        boxes = []
         has_polyp = False
         image_gt = self.gt[self.gt.image == im_name]
         for row in image_gt.iterrows():
@@ -238,7 +246,8 @@ class GianaEvaulator(DatasetEvaluator):
             if has_polyp:
                 classifcations.append(row['class'])
                 centers.append((row.center_x, row.center_y))
-        return has_polyp, classifcations, centers
+                boxes.append([row.x_min, row.y_min, row.x_max, row.y_max])
+        return has_polyp, classifcations, centers, boxes
 
     def _is_polyp_classified(self, pred, gt):
         if pred == gt:

@@ -487,6 +487,9 @@ def build_transform_gen(cfg, is_train):
             tfm_gens.append(T.RandomContrast(contrast_range[0], contrast_range[1]))
             assert len(saturation_range) == 2, "saturation must be a tuple of two floats."
             tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1]))
+            assert len(hue_range) == 2, "hue must be a tuple of two floats."
+            tfm_gens.append(T.RandomSaturation(hue_range[0], hue_range[1]))
+
         tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens

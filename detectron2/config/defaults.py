@@ -560,6 +560,9 @@ _C.TEST.AUG.FLIP = True
 _C.TEST.PRECISE_BN = CN({"ENABLED": False})
 _C.TEST.PRECISE_BN.NUM_ITER = 200
 
+
+_C.TEST.GIANA_METRICS = False
+
 # ---------------------------------------------------------------------------- #
 # Misc options
 # ---------------------------------------------------------------------------- #
