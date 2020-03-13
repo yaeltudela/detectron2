@@ -4,12 +4,14 @@ import logging
 import numpy as np
 import torch
 import torch.nn.functional as F
-from fvcore.nn import smooth_l1_loss
+from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss
 
 from detectron2.layers import batched_nms, cat
 from detectron2.structures import Boxes, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
+
+from detectron2.structures.boxes import compute_giou
 
 from ..sampling import subsample_labels
 
@@ -50,15 +52,15 @@ Naming convention:
 
 
 def find_top_rpn_proposals(
-    proposals,
-    pred_objectness_logits,
-    images,
-    nms_thresh,
-    pre_nms_topk,
-    post_nms_topk,
-    min_box_side_len,
-    training,
-    max_box_side_len
+        proposals,
+        pred_objectness_logits,
+        images,
+        nms_thresh,
+        pre_nms_topk,
+        post_nms_topk,
+        min_box_side_len,
+        training,
+        max_box_side_len
 ):
     """
     For each feature map, select the `pre_nms_topk` highest scoring proposals,
@@ -99,7 +101,7 @@ def find_top_rpn_proposals(
     level_ids = []  # #lvl Tensor, each of shape (topk,)
     batch_idx = torch.arange(num_images, device=device)
     for level_id, proposals_i, logits_i in zip(
-        itertools.count(), proposals, pred_objectness_logits
+            itertools.count(), proposals, pred_objectness_logits
     ):
         Hi_Wi_A = logits_i.shape[1]
         num_proposals_i = min(pre_nms_topk, Hi_Wi_A)
@@ -153,11 +155,11 @@ def find_top_rpn_proposals(
 
 
 def rpn_losses(
-    gt_objectness_logits,
-    gt_anchor_deltas,
-    pred_objectness_logits,
-    pred_anchor_deltas,
-    smooth_l1_beta,
+        gt_objectness_logits,
+        gt_anchor_deltas,
+        pred_objectness_logits,
+        pred_anchor_deltas,
+        smooth_l1_beta,
 ):
     """
     Args:
@@ -177,34 +179,48 @@ def rpn_losses(
     Returns:
         objectness_loss, localization_loss, both unnormalized (summed over samples).
     """
+
+    def giou_loss(inputs, targets):
+
+        pred_boxes = Boxes(inputs)
+        target_boxes = Boxes(targets)
+
+        l_giou = torch.tensor(1) - compute_giou(pred_boxes, target_boxes)
+        return l_giou.sum() / targets.shape[0]
+
     pos_masks = gt_objectness_logits == 1
     localization_loss = smooth_l1_loss(
         pred_anchor_deltas[pos_masks], gt_anchor_deltas[pos_masks], smooth_l1_beta, reduction="sum"
     )
 
+    #localization_loss = giou_loss(pred_anchor_deltas[pos_masks], gt_anchor_deltas[pos_masks])
+
     valid_masks = gt_objectness_logits >= 0
-    objectness_loss = F.binary_cross_entropy_with_logits(
-        pred_objectness_logits[valid_masks],
-        gt_objectness_logits[valid_masks].to(torch.float32),
-        reduction="sum",
-    )
+    # objectness_loss = F.binary_cross_entropy_with_logits(
+    #     pred_objectness_logits[valid_masks],
+    #     gt_objectness_logits[valid_masks].to(torch.float32),
+    #     reduction="sum",
+    # )
+    objectness_loss = sigmoid_focal_loss(pred_objectness_logits[valid_masks],
+                                         gt_objectness_logits[valid_masks].to(torch.float32), alpha=0.25, gamma=2.0,
+                                         reduction="sum")
     return objectness_loss, localization_loss
 
 
 class RPNOutputs(object):
     def __init__(
-        self,
-        box2box_transform,
-        anchor_matcher,
-        batch_size_per_image,
-        positive_fraction,
-        images,
-        pred_objectness_logits,
-        pred_anchor_deltas,
-        anchors,
-        boundary_threshold=0,
-        gt_boxes=None,
-        smooth_l1_beta=0.0,
+            self,
+            box2box_transform,
+            anchor_matcher,
+            batch_size_per_image,
+            positive_fraction,
+            images,
+            pred_objectness_logits,
+            pred_anchor_deltas,
+            anchors,
+            boundary_threshold=0,
+            gt_boxes=None,
+            smooth_l1_beta=0.0,
     ):
         """
         Args:
@@ -376,8 +392,8 @@ class RPNOutputs(object):
                 # Reshape: (N, A*B, Hi, Wi) -> (N, A, B, Hi, Wi) -> (N, Hi, Wi, A, B)
                 #          -> (N*Hi*Wi*A, B)
                 x.view(x.shape[0], -1, B, x.shape[-2], x.shape[-1])
-                .permute(0, 3, 4, 1, 2)
-                .reshape(-1, B)
+                    .permute(0, 3, 4, 1, 2)
+                    .reshape(-1, B)
                 for x in self.pred_anchor_deltas
             ],
             dim=0,

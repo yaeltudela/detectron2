@@ -33,7 +33,7 @@ __all__ = [
     "TransformGen",
     "apply_transform_gens",
     "RandomGaussianBlur",
-    "RandomHue"
+    "RandomHue",
 ]
 
 
@@ -319,7 +319,7 @@ class RandomContrast(TransformGen):
     See: https://pillow.readthedocs.io/en/3.0.x/reference/ImageEnhance.html
     """
 
-    def __init__(self, intensity_min, intensity_max):
+    def __init__(self, intensity_min, intensity_max, prob=0.5):
         """
         Args:
             intensity_min (float): Minimum augmentation
@@ -330,8 +330,11 @@ class RandomContrast(TransformGen):
 
     def get_transform(self, img):
         w = np.random.uniform(self.intensity_min, self.intensity_max)
-        return BlendTransform(src_image=img.mean(), src_weight=1 - w, dst_weight=w)
-
+        do = self._rand_range() < self.prob
+        if do:
+            return BlendTransform(src_image=img.mean(), src_weight=1 - w, dst_weight=w)
+        else:
+            return NoOpTransform()
 
 class RandomBrightness(TransformGen):
     """
@@ -345,7 +348,7 @@ class RandomBrightness(TransformGen):
     See: https://pillow.readthedocs.io/en/3.0.x/reference/ImageEnhance.html
     """
 
-    def __init__(self, intensity_min, intensity_max):
+    def __init__(self, intensity_min, intensity_max, prob=0.5):
         """
         Args:
             intensity_min (float): Minimum augmentation
@@ -356,8 +359,11 @@ class RandomBrightness(TransformGen):
 
     def get_transform(self, img):
         w = np.random.uniform(self.intensity_min, self.intensity_max)
-        return BlendTransform(src_image=0, src_weight=1 - w, dst_weight=w)
-
+        do = self._rand_range() < self.prob
+        if do:
+            return BlendTransform(src_image=0, src_weight=1 - w, dst_weight=w)
+        else:
+            return NoOpTransform()
 
 class RandomSaturation(TransformGen):
     """
@@ -371,7 +377,7 @@ class RandomSaturation(TransformGen):
     See: https://pillow.readthedocs.io/en/3.0.x/reference/ImageEnhance.html
     """
 
-    def __init__(self, intensity_min, intensity_max):
+    def __init__(self, intensity_min, intensity_max, prob=0.5):
         """
         Args:
             intensity_min (float): Minimum augmentation (1 preserves input).
@@ -382,10 +388,13 @@ class RandomSaturation(TransformGen):
 
     def get_transform(self, img):
         assert img.shape[-1] == 3, "Saturation only works on RGB images"
-        w = np.random.uniform(self.intensity_min, self.intensity_max)
-        grayscale = img.dot([0.299, 0.587, 0.114])[:, :, np.newaxis]
-        return BlendTransform(src_image=grayscale, src_weight=1 - w, dst_weight=w)
-
+        do = self._rand_range() < self.prob
+        if do:
+            w = np.random.uniform(self.intensity_min, self.intensity_max)
+            grayscale = img.dot([0.299, 0.587, 0.114])[:, :, np.newaxis]
+            return BlendTransform(src_image=grayscale, src_weight=1 - w, dst_weight=w)
+        else:
+            return NoOpTransform()
 
 class RandomLighting(TransformGen):
     """
@@ -417,15 +426,18 @@ class RandomLighting(TransformGen):
 
 class RandomHue(TransformGen):
 
-    def __init__(self, hue_min, hue_max):
+    def __init__(self, hue_min, hue_max, prob=0.5):
         super()._init()
         self._init(locals())
 
     def get_transform(self, img):
         assert img.shape[-1] == 3, "Hue only works on RGB images"
-        hue_factor = self._rand_range(low=self.hue_min, high=self.hue_max)
-        print(hue_factor)
-        return RandomHueTransform(hue_factor)
+        do = self._rand_range() < self.prob
+        if do:
+            hue_factor = self._rand_range(low=self.hue_min, high=self.hue_max)
+            return RandomHueTransform(hue_factor)
+        else:
+            return NoOpTransform()
 
 
 class RandomGaussianBlur(TransformGen):

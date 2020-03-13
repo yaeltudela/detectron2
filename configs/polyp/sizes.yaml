@@ -1,0 +1,19 @@
+_BASE_: "trainextra_test.yaml"
+MODEL:
+  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
+  MASK_ON: False
+  RESNETS:
+    DEPTH: 50
+  PROPOSAL_GENERATOR:
+    MIN_SIZE: 10
+    MAX_SIZE: 160
+SOLVER:
+  IMS_PER_BATCH: 2
+  BASE_LR: 0.0025
+  WEIGHT_DECAY: 0.0001
+  LR_SCHEDULER_NAME: "WarmupCosineLR"
+
+OUTPUT_DIR: "results/vanilla_sizes_extra"
+
+TEST:
+  DETECTIONS_PER_IMAGE: 1

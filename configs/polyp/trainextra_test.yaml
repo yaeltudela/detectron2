@@ -1,0 +1,7 @@
+_BASE_: "Base-RCNN-FPN.yaml"
+DATASETS:
+  TRAIN: ("CVC_VideoClinicDB_train", "CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" ,)
+  TEST: ("CVC_VideoClinicDB_test",)
+SOLVER:
+  STEPS: (0, 13393, 21420)
+  MAX_ITER: 26775  # 5 epocas

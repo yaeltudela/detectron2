@@ -323,6 +323,39 @@ def pairwise_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     return iou
 
 
+def compute_giou(predictions: Boxes, targets: Boxes) -> torch.Tensor:
+    area1 = predictions.area()
+    area2 = targets.area()
+
+    predictions, targets = predictions.tensor, targets.tensor
+
+    # iou
+    lt = torch.max(predictions[:, :2], targets[:, :2])  # [N,2]
+    rb = torch.min(predictions[:, 2:], targets[:, 2:])  # [N,2]
+    wh = (rb - lt).clamp(min=0)  # [N,2]
+    inter = wh[:, 0] * wh[:, 1]  # [N]
+
+    # enclosing box calculation
+    xy_min = torch.min(predictions[:, :2], targets[:, :2])  # [N,M]
+    xy_min.clamp_(min=0)
+    wh_max = torch.max(predictions[:, 2:], targets[:, 2:])
+    xy_max = xy_min + wh_max
+
+    enc_boxes = torch.cat([xy_min, xy_max], dim=1)
+    mask_boxes = (enc_boxes[:, 0] < enc_boxes[:, 2]) * (enc_boxes[:, 1] < enc_boxes[:, 3])
+    area_enc = (enc_boxes[:, 2] - enc_boxes[:, 0]) * (enc_boxes[:, 3] - enc_boxes[:, 1]) + 1e-7
+    del enc_boxes
+
+    # calc filtered_iou
+    inter[~mask_boxes] = 0
+    union = (area1 + area2 - inter + 1e-7)
+    iou = inter/union
+
+
+    giou = iou - ((area_enc - union) / area_enc)
+
+    return giou
+
 def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     """
     Compute pairwise intersection over union (IOU) of two sets of matched

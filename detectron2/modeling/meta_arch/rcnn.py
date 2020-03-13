@@ -74,7 +74,7 @@ class GeneralizedRCNN(nn.Module):
             v_pred = v_pred.overlay_instances(
                 boxes=prop.proposal_boxes[0:box_size].tensor.cpu().numpy()
             )
-            v_pred.save("/home/devsodin/image.jpg")
+            v_pred.save("/home/yael/image.jpg")
             prop_img = v_pred.get_image()
             vis_img = np.concatenate((anno_img, prop_img), axis=1)
             vis_img = vis_img.transpose(2, 0, 1)

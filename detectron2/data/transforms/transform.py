@@ -125,7 +125,6 @@ class RandomHueTransform(Transform):
         n_hsv = cv2.merge([new_h, s, v])
         return cv2.cvtColor(n_hsv, cv2.COLOR_HSV2BGR)
 
-
     def apply_segmentation(self, segmentation: np.ndarray) -> np.ndarray:
         return segmentation
 

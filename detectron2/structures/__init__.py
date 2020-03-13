@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-from .boxes import Boxes, BoxMode, pairwise_iou
+from .boxes import Boxes, BoxMode, pairwise_iou, compute_giou
 from .image_list import ImageList
 from .instances import Instances
 from .keypoints import Keypoints, heatmaps_to_keypoints

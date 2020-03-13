@@ -2,13 +2,14 @@
 import logging
 import numpy as np
 import torch
-from fvcore.nn import smooth_l1_loss
+from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss
 from torch import nn
 from torch.nn import functional as F
 
 from detectron2.layers import batched_nms, cat
-from detectron2.structures import Boxes, Instances
+from detectron2.structures import Boxes, Instances, pairwise_iou, compute_giou
 from detectron2.utils.events import get_event_storage
+
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,13 @@ class FastRCNNOutputs(object):
         loss_box_reg = loss_box_reg / self.gt_classes.numel()
         return loss_box_reg
 
+    def giou_loss(self):
+
+        pred_boxes = Boxes(self.proposals.tensor)
+        l_giou = torch.tensor(1) - compute_giou(pred_boxes, self.gt_boxes)
+        return l_giou.sum() / self.proposals.tensor.shape[0]
+
+
     def losses(self):
         """
         Compute the default losses for box head in Fast(er) R-CNN,
@@ -264,7 +272,10 @@ class FastRCNNOutputs(object):
         """
         return {
             "loss_cls": self.softmax_cross_entropy_loss(),
-            "loss_box_reg": self.smooth_l1_loss(),
+            # "loss_box_reg": self.smooth_l1_loss(),
+            "loss_box_reg": self.giou_loss(),
+            # "loss_box_reg": self.giou_loss() + self.smooth_l1_loss(),
+
         }
 
     def predict_boxes(self):

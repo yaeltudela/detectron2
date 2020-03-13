@@ -4,6 +4,7 @@ import pandas as pd
 
 from detectron2.data import MetadataCatalog
 from detectron2.evaluation.evaluator import DatasetEvaluator
+from detectron2.structures.boxes import BoxMode
 
 
 class GianaEvaulator(DatasetEvaluator):
@@ -26,7 +27,7 @@ class GianaEvaulator(DatasetEvaluator):
 
         self.gt = self._load_gt()
 
-        self.results = pd.DataFrame(columns=["image", "detected", "localized", "classified", "score"])
+        self.results = pd.DataFrame(columns=["image", "detected", "localized", "classified", "score", "pred_box"])
 
         self.make_dirs()
 
@@ -118,9 +119,15 @@ class GianaEvaulator(DatasetEvaluator):
                 class_fn = clasif.FN if "FN" in clasif.keys() else 0
                 self._add_row(df_classification, [threshold, class_tp, class_fp, class_tn, class_fn])
 
-            df_detection.to_csv(os.path.join(self.detection_folder, "d{}.csv".format(sequence)), index=False)
-            df_localization.to_csv(os.path.join(self.localization_folder, "l{}.csv".format(sequence)), index=False)
-            df_classification.to_csv(os.path.join(self.classification_folder, "c{}.csv".format(sequence)), index=False)
+            df_detection.to_csv(
+                os.path.join(self.detection_folder, "d{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
+                index=False)
+            df_localization.to_csv(
+                os.path.join(self.localization_folder, "l{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
+                index=False)
+            df_classification.to_csv(os.path.join(self.classification_folder,
+                                                  "c{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
+                                     index=False)
             dets.append(df_detection)
             locs.append(df_localization)
             classifs.append(df_classification)
@@ -134,7 +141,8 @@ class GianaEvaulator(DatasetEvaluator):
         self.compute_average_metrics(avg_df_localization, len(sequences), self.localization_folder)
         self.compute_average_metrics(avg_df_classification, len(sequences), self.classification_folder)
 
-        self.results.to_csv(os.path.join(self.output_folder, "results.csv"), index=False)
+        self.results.to_csv(os.path.join(self.output_folder, "results{}.csv".format("_old" if self.old_metric else "")),
+                            index=False)
 
     def compute_average_metrics(self, df, sequences, save_folder):
         df = df.groupby("threshold")
@@ -146,7 +154,7 @@ class GianaEvaulator(DatasetEvaluator):
         else:
             df = df.sum()
         df = self._compute_aggregation_metrics(df)
-        df.to_csv(os.path.join(save_folder, "avg.csv"), index=False)
+        df.to_csv(os.path.join(save_folder, "avg{}.csv".format("_old" if self.old_metric else "")), index=False)
 
     def _compute_aggregation_metrics(self, df):
         tp = df.TP
@@ -174,6 +182,7 @@ class GianaEvaulator(DatasetEvaluator):
     def process(self, input, output):
 
         for instance, output in zip(input, output):
+
             im_name = os.path.basename(instance['file_name'])
 
             fields = output["instances"].get_fields()
@@ -191,47 +200,56 @@ class GianaEvaulator(DatasetEvaluator):
                     # FPS and TPS
                     # Find matches from all predictions with groundTruth
                     for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
+                        pred_x1, pred_y1, pred_x2, pred_y2 = pred_box
                         to_check = len(gt_centers)
                         checked = 0
                         for gt_classif, gt_center, gt_box in zip(gt_classifcations, gt_centers, gt_boxes):
                             # if pred box cross gt center; is valid localization
+                            gt_x1, gt_y1, gt_x2, gt_y2 = gt_box
+                            gt_cx, gt_cy = gt_center
+
                             if self.old_metric:
-                                pred_center = [(pred_box[2] - pred_box[0])/ 2, (pred_box[3] - pred_box[1])/ 2]
-                                eval_condition = gt_box[0] < pred_center[0] < gt_box[2] and gt_box[1] < pred_center[1] < gt_box[3]
+                                # predicted center inside box
+                                pred_cx, pred_cy = (pred_x1 + (pred_x2 - pred_x1) / 2), (pred_y1 + (pred_y2 - pred_y1) / 2)
+                                eval_condition = (gt_x1 < pred_cx < gt_x2) and (gt_y1 < pred_cy < gt_y2)
                             else:
-                                eval_condition = pred_box[0] < gt_center[0] < pred_box[2] and pred_box[1] < gt_center[1] < pred_box[3]
+                                # predicted box contains gt center
+                                eval_condition = (pred_x1 < gt_cx < pred_x2) and (pred_y1 < gt_cy < pred_y2)
 
                             if eval_condition:
                                 gt_centers.remove(gt_center)
                                 gt_classifcations.remove(gt_classif)
+                                gt_boxes.remove(gt_box)
                                 localization_response = "TP"
-                                classification_response = self._is_polyp_classified(self.class_id_name[pred_classif.item()], gt_classif)
+                                classification_response = self._is_polyp_classified(
+                                    self.class_id_name[pred_classif.item()], gt_classif)
 
                                 break
                             else:
+                                # check if match any gt center
                                 checked += 1
                                 if checked == to_check:
                                     localization_response = "FP"
                                     classification_response = "non-eval"
                                     break
-                        row = [im_name, detection_response, localization_response, classification_response, pred_score]
+                        row = [im_name, detection_response, localization_response, classification_response, pred_score, pred_box]
                         self._add_row(self.results, row)
 
                 else:
                     localization_response = "FP"
                     for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
-                        row = [im_name, detection_response, localization_response, "non-eval", pred_score]
+                        row = [im_name, detection_response, localization_response, "non-eval", pred_score, pred_box]
                         self._add_row(self.results, row)
             # Model has no preds for the frame
             else:
                 if gt_has_polyp:
                     localization_response = "FN"
                     for gt_classif, gt_center in zip(gt_classifcations, gt_centers):
-                        row = [im_name, detection_response, localization_response, "non-eval", -1]
+                        row = [im_name, detection_response, localization_response, "non-eval", -1, "NA"]
                         self._add_row(self.results, row)
                 else:
                     localization_response = "TN"
-                    row = [im_name, detection_response, localization_response, "non-eval", -1]
+                    row = [im_name, detection_response, localization_response, "non-eval", -1, "NA"]
                     self._add_row(self.results, row)
 
     def get_gt_info(self, im_name):
@@ -245,11 +263,12 @@ class GianaEvaulator(DatasetEvaluator):
             has_polyp = row.has_polyp
             if has_polyp:
                 classifcations.append(row['class'])
-                centers.append((row.center_x, row.center_y))
-                boxes.append([row.x_min, row.y_min, row.x_max, row.y_max])
+                centers.append((row.center_y, row.center_x))
+                boxes.append([row.y_min, row.x_min, row.y_max, row.x_max])
         return has_polyp, classifcations, centers, boxes
 
-    def _is_polyp_classified(self, pred, gt):
+    @staticmethod
+    def _is_polyp_classified(pred, gt):
         if pred == gt:
             if pred == 'AD':
                 return "TP"
@@ -280,4 +299,3 @@ if __name__ == '__main__':
     opts = ap.parse_args()
 
     offline_evaluation(opts.dataset, opts.output, opts.file)
-

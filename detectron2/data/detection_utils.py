@@ -447,6 +447,7 @@ def build_transform_gen(cfg, is_train):
         gaussian_blur_prob = cfg.INPUT.GBLUR_PROB_TRAIN
         gaussian_blur_kernel = (cfg.INPUT.GBLUR_K_SIZE, cfg.INPUT.GBLUR_K_SIZE)
         color_jitter = cfg.INPUT.COLOR_JITTER.ENABLED
+        color_jitter_prob = cfg.INPUT.COLOR_JITTER.PROB
         brightness_range = cfg.INPUT.COLOR_JITTER.BRIGHTNESS
         contrast_range = cfg.INPUT.COLOR_JITTER.CONTRAST
         saturation_range = cfg.INPUT.COLOR_JITTER.SATURATION
@@ -460,11 +461,13 @@ def build_transform_gen(cfg, is_train):
         gaussian_blur_prob = 0
         gaussian_blur_kernel = (cfg.INPUT.GBLUR_K_SIZE, cfg.INPUT.GBLUR_K_SIZE)
         color_jitter = False
+        color_jitter_prob = 0.0
         hflip = False
         vflip = False
         brightness_range = (1.,1.)
         contrast_range = (1.,1.)
         saturation_range = (1.,1.)
+        hue_range = (0., 0.)
 
 
     if sample_style == "range":
@@ -481,14 +484,15 @@ def build_transform_gen(cfg, is_train):
         if vflip:
             tfm_gens.append(T.RandomFlip(horizontal=False, vertical=True))
         if color_jitter:
+
             assert len(brightness_range) == 2, "brightness must be a tuple of two floats."
-            tfm_gens.append(T.RandomBrightness(brightness_range[0], brightness_range[1]))
+            tfm_gens.append(T.RandomBrightness(brightness_range[0], brightness_range[1], prob=color_jitter_prob))
             assert len(contrast_range) == 2, "contrast must be a tuple of two floats."
-            tfm_gens.append(T.RandomContrast(contrast_range[0], contrast_range[1]))
+            tfm_gens.append(T.RandomContrast(contrast_range[0], contrast_range[1], prob=color_jitter_prob))
             assert len(saturation_range) == 2, "saturation must be a tuple of two floats."
-            tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1]))
+            tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1], prob=color_jitter_prob))
             assert len(hue_range) == 2, "hue must be a tuple of two floats."
-            tfm_gens.append(T.RandomSaturation(hue_range[0], hue_range[1]))
+            tfm_gens.append(T.RandomHue(hue_range[0], hue_range[1], prob=color_jitter_prob))
 
         tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
         logger.info("TransformGens used in training: " + str(tfm_gens))
