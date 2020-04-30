@@ -5,3 +5,5 @@ DATASETS:
 SOLVER:
   STEPS: (0, 1100, 1760)
   MAX_ITER: 2200 # 5 epocas
+
+OUTPUT_DIR: "results/clinic"

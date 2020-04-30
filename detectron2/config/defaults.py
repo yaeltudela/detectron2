@@ -452,6 +452,34 @@ _C.MODEL.RETINANET.SMOOTH_L1_LOSS_BETA = 0.1
 
 
 # ---------------------------------------------------------------------------- #
+# FoveaBox Head
+# ---------------------------------------------------------------------------- #
+_C.MODEL.FOVEABOX = CN()
+
+# This is the number of foreground classes.
+_C.MODEL.FOVEABOX.NUM_CLASSES = 80
+
+_C.MODEL.FOVEABOX.IN_FEATURES = ["p3", "p4", "p5", "p6", "p7"]
+
+# Convolutions to use in the cls and bbox tower
+# NOTE: this doesn't include the last conv for logits
+_C.MODEL.FOVEABOX.NUM_CONVS = 4
+
+# Inference cls score threshold, only anchors with score > INFERENCE_TH are
+# considered for inference (to improve speed)
+_C.MODEL.FOVEABOX.SCORE_THRESH_TEST = 0.05
+_C.MODEL.FOVEABOX.TOPK_CANDIDATES_TEST = 1000
+_C.MODEL.FOVEABOX.NMS_THRESH_TEST = 0.5
+_C.MODEL.FOVEABOX.EDGE_LIST = [16, 32, 64, 126, 256]
+_C.MODEL.FOVEABOX.SCALE_RANGES = ((8, 32), (16, 64), (32, 128), (64, 256), (128, 512))
+_C.MODEL.FOVEABOX.STRIDES = [4, 8, 16, 32, 64]
+_C.MODEL.FOVEABOX.SIGMA = 0.4
+# Loss parameters
+_C.MODEL.FOVEABOX.FOCAL_LOSS_GAMMA = 1.5
+_C.MODEL.FOVEABOX.FOCAL_LOSS_ALPHA = 0.4
+_C.MODEL.FOVEABOX.SMOOTH_L1_LOSS_BETA = 0.11
+
+# ---------------------------------------------------------------------------- #
 # ResNe[X]t options (ResNets = {ResNet, ResNeXt}
 # Note that parts of a resnet may be used for both the backbone and the head
 # These options apply to both

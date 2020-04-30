@@ -5,3 +5,5 @@ DATASETS:
 SOLVER:
   STEPS: (0, 13393, 21420)
   MAX_ITER: 26775  # 5 epocas
+
+OUTPUT_DIR: "results/extra"

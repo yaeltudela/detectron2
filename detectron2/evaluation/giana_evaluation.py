@@ -182,7 +182,7 @@ class GianaEvaulator(DatasetEvaluator):
     def process(self, input, output):
 
         for instance, output in zip(input, output):
-
+            already_localized = False
             im_name = os.path.basename(instance['file_name'])
 
             fields = output["instances"].get_fields()
@@ -220,7 +220,8 @@ class GianaEvaulator(DatasetEvaluator):
                                 gt_centers.remove(gt_center)
                                 gt_classifcations.remove(gt_classif)
                                 gt_boxes.remove(gt_box)
-                                localization_response = "TP"
+                                localization_response = "TP" if not already_localized else "FP"
+                                already_localized = True
                                 classification_response = self._is_polyp_classified(
                                     self.class_id_name[pred_classif.item()], gt_classif)
 
