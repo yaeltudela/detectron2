@@ -1,0 +1,35 @@
+MODEL:
+  META_ARCHITECTURE: "FoveaBox"
+  BACKBONE:
+    NAME: "build_retinanet_resnet_fpn_backbone"
+  RESNETS:
+    OUT_FEATURES: ["res2", "res3", "res4", "res5"]
+  FPN:
+    IN_FEATURES: ["res2", "res3", "res4", "res5"]
+
+  FOVEABOX:
+    NUM_CLASSES: 81
+    IN_FEATURES: ["p3", "p4", "p5", "p6", "p7"]
+    EDGE_LIST: [16, 32, 64, 126, 256]
+    SCALE_RANGES: ((8, 32), (16, 64), (32, 128), (64, 256), (128, 512))
+    STRIDES: [4, 8, 16, 32, 64]
+    SIGMA: 0.4
+
+
+INPUT:
+  MIN_SIZE_TRAIN: (288, )
+  MAX_SIZE_TRAIN: 800
+  MIN_SIZE_TEST: 288
+  MAX_SIZE_TEST: 800
+TEST:
+  DETECTIONS_PER_IMAGE: 3
+VERSION: 2
+
+DATASETS:
+  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
+  TEST: ("CVC_VideoClinicDB_test",)
+SOLVER:
+  STEPS: (0, 1100, 1760)
+  MAX_ITER: 2200 # 5 epocas
+
+OUTPUT_DIR: "results/fovea"

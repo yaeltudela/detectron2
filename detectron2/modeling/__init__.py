@@ -24,6 +24,7 @@ from .meta_arch import (
     SemanticSegmentor,
     build_model,
     build_sem_seg_head,
+    FoveaBox,
 )
 from .postprocessing import detector_postprocess
 from .proposal_generator import (
