@@ -304,7 +304,6 @@ def offline_eval_from_coco_res(dataset_name, output_dir, coco_res):
             boxes = Boxes(torch.tensor(boxes).view(-1, 4))
         scores = torch.tensor(scores).view(-1, 1)
         pred_classes = np.array(pred_classes).reshape(-1, 1)
-        pred_classes -= 1
 
         det_input = {
             'image_id': im_id,

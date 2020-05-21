@@ -1,6 +1,8 @@
-_BASE_: "trainextra_test.yaml"
+_BASE_: "Base-TridentNet-Fast-C4.yaml"
+DATASETS:
+  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
+  TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
-  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   MASK_ON: False
   RESNETS:
     DEPTH: 50
@@ -19,13 +21,18 @@ INPUT:
     SATURATION: (0.9,1.1)
     CONTRAST: (0.9,1.1)
     HUE: (-.05,0.05)
+  MIN_SIZE_TRAIN: (288, )
+  MAX_SIZE_TRAIN: 800
+  MIN_SIZE_TEST: 288
+  MAX_SIZE_TEST: 800
 SOLVER:
   IMS_PER_BATCH: 2
   BASE_LR: 0.0025
   WEIGHT_DECAY: 0.0001
+  STEPS: (0, 2674, 4828)
+  MAX_ITER: 5348 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/extended_da_iousum"
-
+OUTPUT_DIR: "results/baselines/trident_hd_all"
 TEST:
   DETECTIONS_PER_IMAGE: 1
