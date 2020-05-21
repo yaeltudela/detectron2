@@ -5,7 +5,7 @@ from pycocotools.coco import COCO
 
 from detectron2.data import MetadataCatalog
 from detectron2.evaluation.evaluator import DatasetEvaluator
-from detectron2.structures import Boxes
+from detectron2.structures import Boxes, Instances
 
 
 class GianaEvaluator(DatasetEvaluator):
@@ -259,14 +259,14 @@ class GianaEvaluator(DatasetEvaluator):
             elif pred == 0:
                 return "TN"
             else:
-                raise NotImplemented
+                raise Exception("Pred {} - GT {}".format(pred, gt))
         else:
             if pred == 0:
                 return "FP"
             elif pred == 1:
                 return "FN"
             else:
-                raise NotImplemented
+                raise Exception("Pred {} - GT {}".format(pred, gt))
 
 
 def offline_evaluation(dataset_name, output_dir, results_file):
@@ -275,50 +275,56 @@ def offline_evaluation(dataset_name, output_dir, results_file):
     evaluator.evaluate()
 
 
-def offline_eval_from_coco_res(coco_gt, coco_res):
-    results = []
+def offline_eval_from_coco_res(dataset_name, output_dir, coco_res):
+    import numpy as np
+    import torch
+    evaluator = GianaEvaluator(dataset_name, output_dir)
 
-    for k, gt_metadata in coco_gt.imgs.items():
-        image_id = gt_metadata['id']
-        filename = gt_metadata['file_name']
-        gt_anns_boxes = [a['bbox'] for a in coco_gt.loadAnns(coco_gt.getAnnIds(image_id))]
-        det_anns_boxes = [(a['bbox'], a['score']) for a in coco_res.loadAnns(coco_res.getAnnIds(image_id))]
+    for det_img in coco_res.imgs.values():
+        im_id = det_img['id']
+        file_name = det_img['file_name']
+        image_size = (det_img['height'], det_img['width'])
 
-        positive_frame = len(gt_anns_boxes) > 0
-        positive_det = len(det_anns_boxes) > 0
+        det_anns = coco_res.loadAnns(coco_res.getAnnIds(imgIds=im_id))
 
-        if positive_frame:
-            if positive_det:
-                for det_box, det_score in det_anns_boxes:
-                    if gt_anns_boxes:
-                        det_cx = det_box[0] + det_box[2]
-                        det_cy = det_box[1] + det_box[3]
+        # XYWH json format --> Boxes XYXY_ABS
+        boxes = []
+        scores = []
+        pred_classes = []
+        for det_annot in det_anns:
+            boxes.append(det_annot['bbox'])
+            scores.append(det_annot['score'])
+            pred_classes.append(det_annot['category_id'])
 
-                        for gt_box in gt_anns_boxes:
-                            gt_box[2] = gt_box[0] + gt_box[2]
-                            gt_box[3] = gt_box[1] + gt_box[3]
-
-                            if gt_box[0] <= det_cx <= gt_box[2] and gt_box[1] <= det_cy <= gt_box[3]:
-                                results.append([filename, "TP", "TP", "NA", det_score, det_box])
-                                gt_anns_boxes.remove(gt_box)
-                            else:
-                                results.append([filename, "TP" if positive_frame else "TN",
-                                                "FP" if positive_frame else "TN", "NA", det_score, det_box])
-                    else:
-                        results.append(
-                            [filename, "TP" if positive_frame else "TN", "FP" if positive_frame else "TN", "NA",
-                             det_score, det_box])
-            else:
-                for gt_box in gt_anns_boxes:
-                    results.append([filename, "FN", "FN", "NA", 1., "-"])
+        boxes = np.array(boxes)
+        if boxes.size == 0:
+            boxes = Boxes(torch.tensor([]).view(-1, 4))
         else:
-            if positive_det:
-                for det_box, det_score in det_anns_boxes:
-                    results.append([filename, "FP", "FP", "NA", det_score, det_box])
-            else:
-                results.append([filename, "TN", "TN", "NA", 1., "-"])
+            boxes[:, 2:] += boxes[:, :2]
+            boxes = Boxes(torch.tensor(boxes).view(-1, 4))
+        scores = torch.tensor(scores).view(-1, 1)
+        pred_classes = np.array(pred_classes).reshape(-1, 1)
+        pred_classes -= 1
 
-    pd.DataFrame(results, columns=["image", "detected", "localized", "classified", "score", "pred_box"])
+        det_input = {
+            'image_id': im_id,
+            'file_name': file_name
+        }
+        det_out = {
+                'pred_boxes': boxes, # Boxes
+                'scores': scores, # np array
+                'pred_classes': pred_classes # tensor
+        }
+
+        print(det_input)
+        print(det_out)
+
+        det_out = Instances(image_size, **det_out)
+
+        evaluator.process([det_input], [{'instances': det_out}])
+
+    evaluator.evaluate()
+
 
 
 if __name__ == '__main__':
@@ -328,12 +334,4 @@ if __name__ == '__main__':
     register_polyp_datasets()
 
     gt = COCO("/home/devsodin/PycharmProjects/detectron2/datasets/CVC_VideoClinicDB_test/annotations/test.json")
-    offline_eval_from_coco_res(gt, gt.loadRes("/home/devsodin/PycharmProjects/TernausNet_v2/dummy.json"))
-
-    ap = ArgumentParser()
-    ap.add_argument("--dataset")
-    ap.add_argument("--output")
-    ap.add_argument("--file")
-    opts = ap.parse_args()
-
-    offline_evaluation(opts.dataset, opts.output, opts.file)
+    offline_eval_from_coco_res("CVC_VideoClinicDB_test", "/home/devsodin/test", gt.loadRes("/home/devsodin/PycharmProjects/detectron2/results/baselines/faster_all/inference/coco_instances_results.json"))
