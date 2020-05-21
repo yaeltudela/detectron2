@@ -1,18 +1,16 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import itertools
 import logging
+
 import numpy as np
 import torch
-import torch.nn.functional as F
 from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss
 
 from detectron2.layers import batched_nms, cat
+from detectron2.modeling.roi_heads.iou_loss import IOULoss
 from detectron2.structures import Boxes, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
-
-from detectron2.structures.boxes import compute_giou
-
 from ..sampling import subsample_labels
 
 logger = logging.getLogger(__name__)
@@ -180,20 +178,12 @@ def rpn_losses(
         objectness_loss, localization_loss, both unnormalized (summed over samples).
     """
 
-    def giou_loss(inputs, targets):
-
-        pred_boxes = Boxes(inputs)
-        target_boxes = Boxes(targets)
-
-        l_giou = torch.tensor(1) - compute_giou(pred_boxes, target_boxes)
-        return l_giou.sum() / targets.shape[0]
-
     pos_masks = gt_objectness_logits == 1
     localization_loss = smooth_l1_loss(
         pred_anchor_deltas[pos_masks], gt_anchor_deltas[pos_masks], smooth_l1_beta, reduction="sum"
     )
 
-    #localization_loss = giou_loss(pred_anchor_deltas[pos_masks], gt_anchor_deltas[pos_masks])
+    # localization_loss = IOULoss(loc_loss_type='giou')(pred_anchor_deltas[pos_masks], gt_anchor_deltas[pos_masks])
 
     valid_masks = gt_objectness_logits >= 0
     # objectness_loss = F.binary_cross_entropy_with_logits(
@@ -204,6 +194,7 @@ def rpn_losses(
     objectness_loss = sigmoid_focal_loss(pred_objectness_logits[valid_masks],
                                          gt_objectness_logits[valid_masks].to(torch.float32), alpha=0.25, gamma=2.0,
                                          reduction="sum")
+
     return objectness_loss, localization_loss
 
 

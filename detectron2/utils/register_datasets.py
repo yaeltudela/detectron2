@@ -16,22 +16,6 @@ def register_polyp_datasets():
             'name': 'NAD',
             'supercategory': 'polyp',
         },
-        "ASS": {
-            'id': 2,
-            'name': 'NAD',
-            'supercategory': 'polyp',
-        },
-        "HP": {
-            'id': 2,
-            'name': 'NAD',
-            'supercategory': 'polyp',
-        },
-        # Default class # not sure about how this works
-        "Polyp": {
-            'id': 3,
-            'name': 'Polyp',
-            'supercategory': 'polyp',
-        }
 
     }
     polyp_datasets = {
@@ -65,11 +49,6 @@ def register_polyp_datasets():
             "categories": ["AD", "NAD"],
             # "categories": ["AD", "NAD", "Polyp"],
             "evaluator_type": "coco"
-        },
-        "ETIS_LaribPolypDB": {
-            "split": "etis.json",
-            "categories": ["Polyp"],
-            "evaluator_type": "coco"
         }
 
     }
@@ -86,7 +65,8 @@ def register_polyp_datasets():
         metadata = {
             "thing_classes": thing_classes,
             "thing_dataset_id_to_contiguous_id": thing_dataset_id_to_contiguous_id,
-            "evaluator_type": dataset_data['evaluator_type']
+            "evaluator_type": dataset_data['evaluator_type'],
+            'annot_file': annot_file
         }
 
         register_coco_instances(name=dataset_name, metadata=metadata, json_file=annot_file, image_root=root_dir)

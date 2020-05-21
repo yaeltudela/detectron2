@@ -1,5 +1,6 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
+  WEIGHTS: "https://dl.fbaipublicfiles.com/detectron2/TridentNet/tridentnet_fast_R_50_C4_3x/148572287/model_final_e1027c.pkl"
   BACKBONE:
     NAME: "build_trident_resnet_backbone"
   ROI_HEADS:
@@ -7,6 +8,7 @@ MODEL:
     POSITIVE_FRACTION: 0.5
     BATCH_SIZE_PER_IMAGE: 128
     PROPOSAL_APPEND_GT: False
+    NUM_CLASSES: 2
   PROPOSAL_GENERATOR:
     NAME: "TridentRPN"
   RPN:
@@ -21,15 +23,5 @@ MODEL:
     BRANCH_DILATIONS: [1, 2, 3]
     TEST_BRANCH_IDX: 1
     TRIDENT_STAGE: "res4"
-SOLVER:
-  IMS_PER_BATCH: 2
-  BASE_LR: 0.0025
-  WEIGHT_DECAY: 0.0001
-  LR_SCHEDULER_NAME: "WarmupCosineLR"
-INPUT:
-  MIN_SIZE_TRAIN: (288, )
-  MAX_SIZE_TRAIN: 800
-  MIN_SIZE_TEST: 288
-  MAX_SIZE_TEST: 800
 VERSION: 2
-
+SEED: 873

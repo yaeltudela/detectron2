@@ -1,6 +1,5 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
-#  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   WEIGHTS: "detectron2://COCO-Detection/faster_rcnn_R_50_FPN_3x/137849458/model_final_280758.pkl"
   BACKBONE:
     NAME: "build_resnet_fpn_backbone"
@@ -43,3 +42,4 @@ INPUT:
   MAX_SIZE_TEST: 800
 TEST:
   DETECTIONS_PER_IMAGE: 1
+SEED: 873

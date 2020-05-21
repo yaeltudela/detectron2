@@ -1,16 +1,20 @@
 import os
 
 import pandas as pd
+from pycocotools.coco import COCO
 
 from detectron2.data import MetadataCatalog
 from detectron2.evaluation.evaluator import DatasetEvaluator
-from detectron2.structures.boxes import BoxMode
+from detectron2.structures import Boxes
 
 
-class GianaEvaulator(DatasetEvaluator):
-    def __init__(self, dataset_name, output_dir, thresholds=None, old_metric=False):
+class GianaEvaluator(DatasetEvaluator):
+
+    def __init__(self, dataset_name, output_dir, thresholds=None, old_metric=False) -> None:
         self.dataset_name = MetadataCatalog.get(dataset_name).name.split("__")[0]
         self.classes_id = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
+        self.annot_file = MetadataCatalog.get(dataset_name).get('annot_file')
+
         self.class_id_name = {v: k for k, v in
                               zip(MetadataCatalog.get(dataset_name).get("thing_classes"), self.classes_id.values())}
         self.dataset_folder = os.path.join("datasets", self.dataset_name)
@@ -19,16 +23,19 @@ class GianaEvaulator(DatasetEvaluator):
         self.localization_folder = os.path.join(output_dir, "localization")
         self.classification_folder = os.path.join(output_dir, "classification")
         self.old_metric = old_metric
+        self.eval_function = self._set_eval_function()
 
         if thresholds is None:
             self.thresholds = [x / 10 for x in range(10)]
         else:
             self.thresholds = thresholds
 
-        self.gt = self._load_gt()
+        self.coco_gt = COCO(self.annot_file)
 
-        self.results = pd.DataFrame(columns=["image", "detected", "localized", "classified", "score", "pred_box"])
-
+        self.results = pd.DataFrame(
+            columns=["image", "detected", "localized", "classified", "pred_class", "gt_class",
+                     "score", "pred_box"])
+        self._partial_results = []
         self.make_dirs()
 
     def make_dirs(self):
@@ -41,26 +48,79 @@ class GianaEvaulator(DatasetEvaluator):
         if not os.path.exists(self.classification_folder):
             os.makedirs(self.classification_folder)
 
-    def _load_gt(self):
-        return pd.read_csv(os.path.join(self.dataset_folder, "gt.csv"))
-
-    def _is_polyp_detected(self, pred, gt):
-        if pred:
-            if gt:
-                return "TP"
-            else:
-                return "FP"
-        else:
-            if gt:
-                return "FN"
-            else:
-                return "TN"
-
     def reset(self):
-        pass
+        self.results = pd.DataFrame(
+            columns=["image", "detected", "localized", "classified", "pred_class", "gt_class",
+                     "score", "pred_box"])
+        self._partial_results = []
+
+    def process(self, input, output):
+        for instance, output in zip(input, output):
+            im_name = os.path.basename(instance['file_name'])
+            im_id = instance['image_id']
+
+            fields = output["instances"].get_fields()
+            pred_boxes = fields['pred_boxes']
+            pred_scores = fields['scores'].cpu().numpy()
+            pred_classes = fields['pred_classes']
+
+            gt_anns = self.coco_gt.loadAnns(self.coco_gt.getAnnIds(imgIds=im_id))
+            gt_boxes = [ann['bbox'] for ann in gt_anns]
+            gt_classes = [ann['category_id'] for ann in gt_anns]
+
+            if gt_anns:
+                if pred_boxes.tensor.size(0) > 0:
+                    # both
+
+                    matchable_gt = list(range(len(gt_anns)))
+                    matchable_pred = list(range(pred_boxes.tensor.size(0)))
+
+                    for pred_idx, (pred_bbox, pred_score, pred_class) in enumerate(
+                            zip(pred_boxes, pred_scores, pred_classes)):
+                        for gt_idx, (gt_bbox, gt_class) in enumerate(zip(gt_boxes, gt_classes)):
+                            # pred_bbox --> XYXY; gt_bbox --> XYWH
+                            gt_bbox = [gt_bbox[0], gt_bbox[1], gt_bbox[0] + gt_bbox[2], gt_bbox[1] + gt_bbox[3]] # XYXY
+                            if self.eval_function(pred_bbox, gt_bbox):
+                                if gt_idx in matchable_gt and pred_idx in matchable_pred:
+                                    # TP
+                                    matchable_pred.remove(pred_idx)
+                                    matchable_gt.remove(gt_idx)
+                                    eval_classif = self._is_polyp_classified(pred_class, gt_class)
+                                    self._partial_results.append(
+                                        [im_name, "TP", "TP", eval_classif, pred_class, gt_class, pred_score, pred_bbox])
+
+                    for unmatched_gt in matchable_gt:
+                        self._partial_results.append([im_name, "FN", "FN", "NA", -1, gt_classes[unmatched_gt], -1, -1])
+
+                    for unmatched_pred in matchable_pred:
+                        self._partial_results.append(
+                            [im_name, "FP", "FP", "NA", pred_classes[unmatched_pred], -1, pred_scores[unmatched_pred],
+                             pred_boxes[unmatched_pred]])
+
+                else:
+                    # FN de todos los gt anns
+                    for idx, (gt_bbox, gt_class) in enumerate(zip(gt_boxes, gt_classes)):
+                        self._partial_results.append([im_name, "FN", "FN", "NA", -1, gt_class, -1, -1])
+            else:
+                if pred_boxes.tensor.size(0) > 0:
+                    # FP de todos los pred anns
+                    for pred_bbox, pred_score, pred_class in zip(pred_boxes, pred_scores, pred_classes):
+                        self._partial_results.append([im_name, "FP", "FP", "NA", -1, -1, -1, -1])
+                else:
+                    # TN x 1
+                    self._partial_results.append([im_name, "TN", "TN", "NA", -1, -1, -1, -1])
+
+    def _add_row(self, df, row):
+        df.loc[len(df)] = row
+        df.index += 1
+        df.reset_index(inplace=True, drop=True)
 
     def evaluate(self):
+        self.results = pd.DataFrame(self._partial_results,
+                                    columns=["image", "detected", "localized", "classified", "pred_class", "gt_class",
+                                             "score", "pred_box"])
         self.results[['sequence', 'frame']] = self.results.image.str.split("-", expand=True)
+
         sequences = pd.unique(self.results.sequence)
         dets = []
         locs = []
@@ -119,15 +179,9 @@ class GianaEvaulator(DatasetEvaluator):
                 class_fn = clasif.FN if "FN" in clasif.keys() else 0
                 self._add_row(df_classification, [threshold, class_tp, class_fp, class_tn, class_fn])
 
-            df_detection.to_csv(
-                os.path.join(self.detection_folder, "d{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
-                index=False)
-            df_localization.to_csv(
-                os.path.join(self.localization_folder, "l{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
-                index=False)
-            df_classification.to_csv(os.path.join(self.classification_folder,
-                                                  "c{}{}.csv".format(sequence, "_old" if self.old_metric else "")),
-                                     index=False)
+            df_detection.to_csv(os.path.join(self.detection_folder, "d{}.csv".format(sequence)), index=False)
+            df_localization.to_csv(os.path.join(self.localization_folder, "l{}.csv".format(sequence)), index=False)
+            df_classification.to_csv(os.path.join(self.classification_folder, "c{}.csv".format(sequence)), index=False)
             dets.append(df_detection)
             locs.append(df_localization)
             classifs.append(df_classification)
@@ -141,8 +195,13 @@ class GianaEvaulator(DatasetEvaluator):
         self.compute_average_metrics(avg_df_localization, len(sequences), self.localization_folder)
         self.compute_average_metrics(avg_df_classification, len(sequences), self.classification_folder)
 
-        self.results.to_csv(os.path.join(self.output_folder, "results{}.csv".format("_old" if self.old_metric else "")),
-                            index=False)
+        self.results.to_csv(os.path.join(self.output_folder, "results.csv"), index=False)
+
+    def _set_eval_function(self):
+        if self.old_metric:
+            return self.old_eval
+        else:
+            return self.new_eval
 
     def compute_average_metrics(self, df, sequences, save_folder):
         df = df.groupby("threshold")
@@ -154,7 +213,7 @@ class GianaEvaulator(DatasetEvaluator):
         else:
             df = df.sum()
         df = self._compute_aggregation_metrics(df)
-        df.to_csv(os.path.join(save_folder, "avg{}.csv".format("_old" if self.old_metric else "")), index=False)
+        df.to_csv(os.path.join(save_folder, "avg.csv"), index=False)
 
     def _compute_aggregation_metrics(self, df):
         tp = df.TP
@@ -174,118 +233,92 @@ class GianaEvaulator(DatasetEvaluator):
 
         return df
 
-    def _add_row(self, df, row):
-        df.loc[len(df)] = row
-        df.index += 1
-        df.reset_index(inplace=True, drop=True)
+    def old_eval(self, pred_box, gt_box):
+        """
 
-    def process(self, input, output):
+        :param pred_box: box xyxy
+        :param gt_box: box xyxy
+        :return:
+        """
+        pred_cx = pred_box[0] + ((pred_box[2] - pred_box[0]) / 2)
+        pred_cy = pred_box[1] + ((pred_box[3] - pred_box[1]) / 2)
 
-        for instance, output in zip(input, output):
-            already_localized = False
-            im_name = os.path.basename(instance['file_name'])
+        return (gt_box[0] <= pred_cx <= gt_box[0] + gt_box[2]) and (gt_box[1] <= pred_cy <= gt_box[1] + gt_box[3])
 
-            fields = output["instances"].get_fields()
-            pred_boxes = fields['pred_boxes']
-            scores = fields['scores'].cpu().numpy()
-            pred_class = fields['pred_classes']
+    def new_eval(self, pred_box, gt_box):
 
-            gt_has_polyp, gt_classifcations, gt_centers, gt_boxes = self.get_gt_info(im_name)
-            pred_has_polyp = len(pred_boxes) > 0
-            detection_response = self._is_polyp_detected(pred_has_polyp, gt_has_polyp)
+        gt_cx = gt_box[0] + ((gt_box[2] - gt_box[0]) / 2)
+        gt_cy = gt_box[1] + ((gt_box[3] - gt_box[1]) / 2)
 
-            # Model has predictions for the frame
-            if len(pred_boxes) > 0:
-                if gt_has_polyp:
-                    # FPS and TPS
-                    # Find matches from all predictions with groundTruth
-                    for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
-                        pred_x1, pred_y1, pred_x2, pred_y2 = pred_box
-                        to_check = len(gt_centers)
-                        checked = 0
-                        for gt_classif, gt_center, gt_box in zip(gt_classifcations, gt_centers, gt_boxes):
-                            # if pred box cross gt center; is valid localization
-                            gt_x1, gt_y1, gt_x2, gt_y2 = gt_box
-                            gt_cx, gt_cy = gt_center
+        return (pred_box[0] <= gt_cx <= pred_box[2]) and (pred_box[1] <= gt_cy <= pred_box[3])
 
-                            if self.old_metric:
-                                # predicted center inside box
-                                pred_cx, pred_cy = (pred_x1 + (pred_x2 - pred_x1) / 2), (pred_y1 + (pred_y2 - pred_y1) / 2)
-                                eval_condition = (gt_x1 < pred_cx < gt_x2) and (gt_y1 < pred_cy < gt_y2)
-                            else:
-                                # predicted box contains gt center
-                                eval_condition = (pred_x1 < gt_cx < pred_x2) and (pred_y1 < gt_cy < pred_y2)
-
-                            if eval_condition:
-                                gt_centers.remove(gt_center)
-                                gt_classifcations.remove(gt_classif)
-                                gt_boxes.remove(gt_box)
-                                localization_response = "TP" if not already_localized else "FP"
-                                already_localized = True
-                                classification_response = self._is_polyp_classified(
-                                    self.class_id_name[pred_classif.item()], gt_classif)
-
-                                break
-                            else:
-                                # check if match any gt center
-                                checked += 1
-                                if checked == to_check:
-                                    localization_response = "FP"
-                                    classification_response = "non-eval"
-                                    break
-                        row = [im_name, detection_response, localization_response, classification_response, pred_score, pred_box]
-                        self._add_row(self.results, row)
-
-                else:
-                    localization_response = "FP"
-                    for pred_box, pred_score, pred_classif in zip(pred_boxes, scores, pred_class):
-                        row = [im_name, detection_response, localization_response, "non-eval", pred_score, pred_box]
-                        self._add_row(self.results, row)
-            # Model has no preds for the frame
-            else:
-                if gt_has_polyp:
-                    localization_response = "FN"
-                    for gt_classif, gt_center in zip(gt_classifcations, gt_centers):
-                        row = [im_name, detection_response, localization_response, "non-eval", -1, "NA"]
-                        self._add_row(self.results, row)
-                else:
-                    localization_response = "TN"
-                    row = [im_name, detection_response, localization_response, "non-eval", -1, "NA"]
-                    self._add_row(self.results, row)
-
-    def get_gt_info(self, im_name):
-        classifcations = []
-        centers = []
-        boxes = []
-        has_polyp = False
-        image_gt = self.gt[self.gt.image == im_name]
-        for row in image_gt.iterrows():
-            idx, row = row
-            has_polyp = row.has_polyp
-            if has_polyp:
-                classifcations.append(row['class'])
-                centers.append((row.center_y, row.center_x))
-                boxes.append([row.y_min, row.x_min, row.y_max, row.x_max])
-        return has_polyp, classifcations, centers, boxes
-
-    @staticmethod
-    def _is_polyp_classified(pred, gt):
+    def _is_polyp_classified(self, pred, gt):
         if pred == gt:
-            if pred == 'AD':
+            if pred == 1:
                 return "TP"
-            else:
+            elif pred == 0:
                 return "TN"
-        else:
-            if pred == 'AD':
-                return "FP"
             else:
+                raise NotImplemented
+        else:
+            if pred == 0:
+                return "FP"
+            elif pred == 1:
                 return "FN"
+            else:
+                raise NotImplemented
 
 
 def offline_evaluation(dataset_name, output_dir, results_file):
-    evaluator = GianaEvaulator(dataset_name, output_dir)
+    evaluator = GianaEvaluator(dataset_name, output_dir)
     evaluator.results = pd.read_csv(results_file)
     evaluator.evaluate()
+
+
+def offline_eval_from_coco_res(coco_gt, coco_res):
+    results = []
+
+    for k, gt_metadata in coco_gt.imgs.items():
+        image_id = gt_metadata['id']
+        filename = gt_metadata['file_name']
+        gt_anns_boxes = [a['bbox'] for a in coco_gt.loadAnns(coco_gt.getAnnIds(image_id))]
+        det_anns_boxes = [(a['bbox'], a['score']) for a in coco_res.loadAnns(coco_res.getAnnIds(image_id))]
+
+        positive_frame = len(gt_anns_boxes) > 0
+        positive_det = len(det_anns_boxes) > 0
+
+        if positive_frame:
+            if positive_det:
+                for det_box, det_score in det_anns_boxes:
+                    if gt_anns_boxes:
+                        det_cx = det_box[0] + det_box[2]
+                        det_cy = det_box[1] + det_box[3]
+
+                        for gt_box in gt_anns_boxes:
+                            gt_box[2] = gt_box[0] + gt_box[2]
+                            gt_box[3] = gt_box[1] + gt_box[3]
+
+                            if gt_box[0] <= det_cx <= gt_box[2] and gt_box[1] <= det_cy <= gt_box[3]:
+                                results.append([filename, "TP", "TP", "NA", det_score, det_box])
+                                gt_anns_boxes.remove(gt_box)
+                            else:
+                                results.append([filename, "TP" if positive_frame else "TN",
+                                                "FP" if positive_frame else "TN", "NA", det_score, det_box])
+                    else:
+                        results.append(
+                            [filename, "TP" if positive_frame else "TN", "FP" if positive_frame else "TN", "NA",
+                             det_score, det_box])
+            else:
+                for gt_box in gt_anns_boxes:
+                    results.append([filename, "FN", "FN", "NA", 1., "-"])
+        else:
+            if positive_det:
+                for det_box, det_score in det_anns_boxes:
+                    results.append([filename, "FP", "FP", "NA", det_score, det_box])
+            else:
+                results.append([filename, "TN", "TN", "NA", 1., "-"])
+
+    pd.DataFrame(results, columns=["image", "detected", "localized", "classified", "score", "pred_box"])
 
 
 if __name__ == '__main__':
@@ -293,6 +326,10 @@ if __name__ == '__main__':
     from detectron2.utils.register_datasets import register_polyp_datasets
 
     register_polyp_datasets()
+
+    gt = COCO("/home/devsodin/PycharmProjects/detectron2/datasets/CVC_VideoClinicDB_test/annotations/test.json")
+    offline_eval_from_coco_res(gt, gt.loadRes("/home/devsodin/PycharmProjects/TernausNet_v2/dummy.json"))
+
     ap = ArgumentParser()
     ap.add_argument("--dataset")
     ap.add_argument("--output")

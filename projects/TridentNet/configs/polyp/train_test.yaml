@@ -1,7 +1,0 @@
-_BASE_: "Base-TridentNet-Fast-C4.yaml"
-DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train", )
-  TEST: ("CVC_VideoClinicDB_test",)
-SOLVER:
-  STEPS: (0, 12287, 19656)
-  MAX_ITER: 24575 # 5 epocas

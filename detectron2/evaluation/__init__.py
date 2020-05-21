@@ -7,6 +7,6 @@ from .panoptic_evaluation import COCOPanopticEvaluator
 from .pascal_voc_evaluation import PascalVOCDetectionEvaluator
 from .sem_seg_evaluation import SemSegEvaluator
 from .testing import print_csv_format, verify_results
-from .giana_evaluation import GianaEvaulator
+from .giana_evaluation import GianaEvaluator
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

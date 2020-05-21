@@ -10,7 +10,7 @@ import os
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, launch
-from detectron2.evaluation import COCOEvaluator, DatasetEvaluators, GianaEvaulator
+from detectron2.evaluation import COCOEvaluator, DatasetEvaluators, GianaEvaluator
 
 from tridentnet import add_tridentnet_config
 
@@ -24,7 +24,7 @@ class Trainer(DefaultTrainer):
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
         evaluators = []
         evaluators.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
-        evaluators.append(GianaEvaulator(dataset_name, output_folder, old_metric=cfg.TEST.GIANA_METRICS))
+        evaluators.append(GianaEvaluator(dataset_name, output_folder, old_metric=cfg.TEST.GIANA_METRICS))
         return DatasetEvaluators(evaluators)
 
 
