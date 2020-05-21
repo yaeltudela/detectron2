@@ -11,7 +11,7 @@ import torch
 from torch.utils.cpp_extension import CUDA_HOME, CppExtension, CUDAExtension
 
 torch_ver = [int(x) for x in torch.__version__.split(".")[:2]]
-assert torch_ver >= [1, 3], "Requires PyTorch >= 1.3"
+assert torch_ver >= [1, 4], "Requires PyTorch >= 1.4"
 
 
 def get_version():
@@ -20,9 +20,10 @@ def get_version():
     version_line = [l.strip() for l in init_py if l.startswith("__version__")][0]
     version = version_line.split("=")[-1].strip().strip("'\"")
 
-    # Used by CI to build nightly packages. Users should never use it.
-    # To build a nightly wheel, run:
-    # FORCE_CUDA=1 BUILD_NIGHTLY=1 TORCH_CUDA_ARCH_LIST=All python setup.py bdist_wheel
+    # The following is used to build release packages.
+    # Users should never use it.
+    suffix = os.getenv("D2_VERSION_SUFFIX", "")
+    version = version + suffix
     if os.getenv("BUILD_NIGHTLY", "0") == "1":
         from datetime import datetime
 
@@ -52,7 +53,9 @@ def get_extensions():
     extra_compile_args = {"cxx": []}
     define_macros = []
 
-    if (torch.cuda.is_available() and CUDA_HOME is not None) or os.getenv("FORCE_CUDA", "0") == "1":
+    if (
+        torch.cuda.is_available() and CUDA_HOME is not None and os.path.isdir(CUDA_HOME)
+    ) or os.getenv("FORCE_CUDA", "0") == "1":
         extension = CUDAExtension
         sources += source_cuda
         define_macros += [("WITH_CUDA", None)]
@@ -95,18 +98,20 @@ def get_model_zoo_configs() -> List[str]:
         path.dirname(path.realpath(__file__)), "detectron2", "model_zoo", "configs"
     )
     # Symlink the config directory inside package to have a cleaner pip install.
-    if path.exists(destination):
-        # Remove stale symlink/directory from a previous build.
+
+    # Remove stale symlink/directory from a previous build.
+    if path.exists(source_configs_dir):
         if path.islink(destination):
             os.unlink(destination)
-        else:
+        elif path.isdir(destination):
             shutil.rmtree(destination)
 
-    try:
-        os.symlink(source_configs_dir, destination)
-    except OSError:
-        # Fall back to copying if symlink fails: ex. on Windows.
-        shutil.copytree(source_configs_dir, destination)
+    if not path.exists(destination):
+        try:
+            os.symlink(source_configs_dir, destination)
+        except OSError:
+            # Fall back to copying if symlink fails: ex. on Windows.
+            shutil.copytree(source_configs_dir, destination)
 
     config_paths = glob.glob("configs/**/*.yaml", recursive=True)
     return config_paths
@@ -119,25 +124,32 @@ setup(
     url="https://github.com/facebookresearch/detectron2",
     description="Detectron2 is FAIR's next-generation research "
     "platform for object detection and segmentation.",
-    packages=find_packages(exclude=("configs", "tests")),
+    packages=find_packages(exclude=("configs", "tests*")),
     package_data={"detectron2.model_zoo": get_model_zoo_configs()},
     python_requires=">=3.6",
     install_requires=[
         "termcolor>=1.1",
-        "Pillow==6.2.2",  # torchvision currently does not work with Pillow 7
+        "Pillow",  # you can also use pillow-simd for better performance
         "yacs>=0.1.6",
         "tabulate",
         "cloudpickle",
         "matplotlib",
+        "mock",
         "tqdm>4.29.0",
         "tensorboard",
-        "fvcore",
+        "fvcore>=0.1.1",
         "future",  # used by caffe2
         "pydot",  # used to save caffe2 SVGs
     ],
     extras_require={
         "all": ["shapely", "psutil"],
-        "dev": ["flake8", "isort", "black==19.3b0", "flake8-bugbear", "flake8-comprehensions"],
+        "dev": [
+            "flake8==3.7.9",
+            "isort",
+            "black @ git+https://github.com/psf/black@673327449f86fce558adde153bb6cbe54bfebad2",
+            "flake8-bugbear",
+            "flake8-comprehensions",
+        ],
     },
     ext_modules=get_extensions(),
     cmdclass={"build_ext": torch.utils.cpp_extension.BuildExtension},

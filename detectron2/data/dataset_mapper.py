@@ -22,7 +22,9 @@ class DatasetMapper:
     and map it into a format used by the model.
 
     This is the default callable to be used to map your dataset dict into training data.
-    You may need to follow it to implement your own one for customized logic.
+    You may need to follow it to implement your own one for customized logic,
+    such as a different way to read or transform images.
+    See :doc:`/tutorials/data_loading` for details.
 
     The callable currently does the following:
 
@@ -55,6 +57,9 @@ class DatasetMapper:
 
         if self.load_proposals:
             self.min_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE
+            max_size = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE != -1
+            self.max_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE if max_size else np.inf
+
             self.proposal_topk = (
                 cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TRAIN
                 if is_train
@@ -98,10 +103,7 @@ class DatasetMapper:
         # Pytorch's dataloader is efficient on torch.Tensor due to shared-memory,
         # but not efficient on large generic data structures due to the use of pickle & mp.Queue.
         # Therefore it's important to use torch.Tensor.
-        dataset_dict["image"] = torch.as_tensor(
-            image.transpose(2, 0, 1).astype("float32")
-        ).contiguous()
-        # Can use uint8 if it turns out to be slow some day
+        dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
 
         # USER: Remove if you don't use pre-computed proposals.
         if self.load_proposals:
@@ -110,6 +112,7 @@ class DatasetMapper:
             )
 
         if not self.is_train:
+            # USER: Modify this if you want to keep them for some reason.
             dataset_dict.pop("annotations", None)
             dataset_dict.pop("sem_seg_file_name", None)
             return dataset_dict
