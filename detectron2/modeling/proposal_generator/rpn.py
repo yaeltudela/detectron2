@@ -7,6 +7,7 @@ from torch import nn
 
 from detectron2.config import configurable
 from detectron2.layers import ShapeSpec, cat
+from detectron2.modeling.roi_heads.iou_loss import IOULoss
 from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
@@ -159,6 +160,8 @@ class RPN(nn.Module):
         self.loss_weight          = cfg.MODEL.RPN.LOSS_WEIGHT
         max_size = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE != -1
         self.max_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE if max_size else np.inf
+
+        self.giou_loss = IOULoss(loc_loss_type='giou') if cfg.MODEL.RPN.USE_GIOU else None
         # fmt: on
 
         # Map from self.training state to train/test settings
@@ -299,23 +302,40 @@ class RPN(nn.Module):
         storage.put_scalar("rpn/num_pos_anchors", num_pos_anchors / num_images)
         storage.put_scalar("rpn/num_neg_anchors", num_neg_anchors / num_images)
 
+        # print("loc", cat(pred_anchor_deltas, dim=1)[pos_mask].shape)
         localization_loss = smooth_l1_loss(
             cat(pred_anchor_deltas, dim=1)[pos_mask],
             gt_anchor_deltas[pos_mask],
             self.smooth_l1_beta,
             reduction="sum",
         )
+
+        if self.giou_loss is not None:
+            # print(cat(pred_anchor_deltas, dim=1).shape, gt_anchor_deltas.shape, anchors.shape)
+            gt_anchor_boxes = [self.box2box_transform.apply_deltas(d,anchors) for d in gt_anchor_deltas]
+            gt_anchor_boxes = torch.stack(gt_anchor_boxes)
+            pred_anchor_boxes = [self.box2box_transform.apply_deltas(d, anchors) for d in cat(pred_anchor_deltas, dim=1)]
+            pred_anchor_boxes = torch.stack(pred_anchor_boxes)
+            # print(gt_anchor_boxes.shape, pred_anchor_boxes.shape)
+            # print("-----")
+            # print("giou", pred_anchor_boxes[pos_mask].shape)
+            giou_rpn_loss = self.giou_loss(pred_anchor_boxes[pos_mask], gt_anchor_boxes[pos_mask])
+
         valid_mask = gt_labels >= 0
+        # print("obj", cat(pred_objectness_logits, dim=1)[valid_mask].shape)
         objectness_loss = F.binary_cross_entropy_with_logits(
             cat(pred_objectness_logits, dim=1)[valid_mask],
             gt_labels[valid_mask].to(torch.float32),
             reduction="sum",
         )
         normalizer = self.batch_size_per_image * num_images
-        return {
+        losses = {
             "loss_rpn_cls": objectness_loss / normalizer,
             "loss_rpn_loc": localization_loss / normalizer,
         }
+        if self.giou_loss is not None:
+            losses.update({"loss_rpn_giou": giou_rpn_loss / normalizer})
+        return losses
 
     def forward(
         self,
