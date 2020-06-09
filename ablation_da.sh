@@ -1,0 +1,5 @@
+python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_base.yaml"
+python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_flips.yaml"
+python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_crops.yaml"
+python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_color.yaml"
+python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_mr.yaml"

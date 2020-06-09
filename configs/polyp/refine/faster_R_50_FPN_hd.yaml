@@ -3,6 +3,8 @@ DATASETS:
   TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
   TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
+  ROI_HEADS:
+    REFINE: True
   MASK_ON: False
   RESNETS:
     DEPTH: 50
@@ -33,6 +35,6 @@ SOLVER:
   MAX_ITER: 5348 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/baselines/faster_base_hd"
+OUTPUT_DIR: "results/refine/faster_base_hd"
 TEST:
   DETECTIONS_PER_IMAGE: 1
