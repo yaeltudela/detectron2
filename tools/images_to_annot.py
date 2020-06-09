@@ -212,7 +212,9 @@ if __name__ == '__main__':
     # print("colon")
     # gt_to_coco("../../datasets/CVC_ColonDB", coco_info, categories, "colon")
     # print("hd")
-    gt_to_coco("../../datasets/CVC_HDClassif", coco_info, categories, "hdClassif")
+    # gt_to_coco("../../datasets/CVC_HDClassif", coco_info, categories, "hdClassif")
+    gt_to_coco("../../datasets/CVC_HDClassif_test", coco_info, categories, "hdClassif_test")
+
     # print("test")
     # gt_to_coco("../../datasets/CVC_VideoClinicDB_test", coco_info, categories, "test")
     # print("train")

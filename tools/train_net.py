@@ -91,7 +91,7 @@ class Trainer(DefaultTrainer):
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
         if evaluator_type == "giana":
             evaluator_list.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
-            evaluator_list.append(GianaEvaluator(dataset_name, output_folder, old_metric=cfg.TEST.GIANA_METRICS))
+            evaluator_list.append(GianaEvaluator(dataset_name, output_folder, metric_type=cfg.TEST.GIANA_METRICS))
 
         if len(evaluator_list) == 0:
             raise NotImplementedError(

@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     def output(vis, fname):
         if args.show:
-            print(fname)
+            print(dirname, fname)
             cv2.imshow("window", vis.get_image()[:, :, ::-1])
             cv2.waitKey()
         else:
@@ -74,6 +74,7 @@ if __name__ == "__main__":
                 # Pytorch tensor is in (C, H, W) format
                 img = per_image["image"].permute(1, 2, 0).cpu().detach().numpy()
                 img = utils.convert_image_to_rgb(img, cfg.INPUT.FORMAT)
+                print(img.shape)
 
                 visualizer = Visualizer(img, metadata=metadata, scale=scale)
                 target_fields = per_image["instances"].get_fields()
