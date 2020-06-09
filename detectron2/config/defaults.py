@@ -247,6 +247,8 @@ _C.MODEL.RPN.POST_NMS_TOPK_TEST = 1000
 # NMS threshold used on RPN proposals
 _C.MODEL.RPN.NMS_THRESH = 0.7
 
+_C.MODEL.RPN.USE_GIOU = False # TODO experiments to test
+
 # ---------------------------------------------------------------------------- #
 # ROI HEADS options
 # ---------------------------------------------------------------------------- #
@@ -285,6 +287,8 @@ _C.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 # If True, augment proposals with ground-truth boxes before sampling proposals to
 # train ROI heads.
 _C.MODEL.ROI_HEADS.PROPOSAL_APPEND_GT = True
+
+_C.MODEL.ROI_HEADS.REFINE = False # TODO experiments to test
 
 # ---------------------------------------------------------------------------- #
 # Box Head
