@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform
+from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform, CropTransform, TransformList
 
 __all__ = ["ExtentTransform", "ResizeTransform", "GaussianBlurTransform", "RandomHueTransform", "RotationTransform"]
 
@@ -113,6 +113,9 @@ class ResizeTransform(Transform):
         segmentation = self.apply_image(segmentation, interp=Image.NEAREST)
         return segmentation
 
+    def inverse(self):
+        return ResizeTransform(self.new_h, self.new_w, self.h, self.w, self.interp)
+
 
 class GaussianBlurTransform(Transform):
     def __init__(self, kernel):
@@ -147,8 +150,6 @@ class RandomHueTransform(Transform):
     def apply_segmentation(self, segmentation: np.ndarray) -> np.ndarray:
         return segmentation
 
-    def inverse(self):
-        return ResizeTransform(self.new_h, self.new_w, self.h, self.w, self.interp)
 
 
 class RotationTransform(Transform):
@@ -175,7 +176,7 @@ class RotationTransform(Transform):
             center = image_center
         if interp is None:
             interp = cv2.INTER_LINEAR
-        abs_cos, abs_sin = abs(np.cos(np.deg2rad(angle))), abs(np.sin(np.deg2rad(angle)))
+        abs_cos, abs_sin = (abs(np.cos(np.deg2rad(angle))), abs(np.sin(np.deg2rad(angle))))
         if expand:
             # find the new width and height bounds
             bound_w, bound_h = np.rint(
@@ -223,6 +224,20 @@ class RotationTransform(Transform):
             # shift the rotation center to the new coordinates
             rm[:, 2] += new_center
         return rm
+
+    def inverse(self):
+        """
+        The inverse is to rotate it back with expand, and crop to get the original shape.
+        """
+        if not self.expand:  # Not possible to inverse if a part of the image is lost
+            raise NotImplementedError()
+        rotation = RotationTransform(
+            self.bound_h, self.bound_w, -self.angle, True, None, self.interp
+        )
+        crop = CropTransform(
+            (rotation.bound_w - self.w) // 2, (rotation.bound_h - self.h) // 2, self.w, self.h
+        )
+        return TransformList([rotation, crop])
 
 
 def HFlip_rotated_box(transform, rotated_boxes):

@@ -289,6 +289,9 @@ _C.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 _C.MODEL.ROI_HEADS.PROPOSAL_APPEND_GT = True
 
 _C.MODEL.ROI_HEADS.REFINE = False # TODO experiments to test
+_C.MODEL.ROI_HEADS.DML_HEAD = False # TODO experiments to test
+
+_C.MODEL.ROI_HEADS.LOSS_WEIGHTS = (1, 1, 1)
 
 # ---------------------------------------------------------------------------- #
 # Box Head
@@ -320,6 +323,8 @@ _C.MODEL.ROI_BOX_HEAD.NORM = ""
 _C.MODEL.ROI_BOX_HEAD.CLS_AGNOSTIC_BBOX_REG = False
 # If true, RoI heads use bounding boxes predicted by the box head rather than proposal boxes.
 _C.MODEL.ROI_BOX_HEAD.TRAIN_ON_PRED_BOXES = False
+
+_C.MODEL.ROI_BOX_HEAD.USE_GIOU = False
 
 # ---------------------------------------------------------------------------- #
 # Cascaded Box Head

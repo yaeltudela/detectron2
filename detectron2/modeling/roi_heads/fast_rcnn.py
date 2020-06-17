@@ -241,7 +241,6 @@ class FastRCNNOutputs(object):
             self._log_accuracy()
             return F.cross_entropy(self.pred_class_logits, self.gt_classes, reduction="mean")
 
-
     def smooth_l1_loss(self):
         """
         Compute the smooth L1 loss for box regression.
@@ -352,8 +351,6 @@ class FastRCNNOutputs(object):
         )
 
 
-
-
 class FastRCNNOutputLayers(nn.Module):
     """
     Two linear layers for predicting Fast R-CNN outputs:
@@ -373,6 +370,7 @@ class FastRCNNOutputLayers(nn.Module):
         test_score_thresh=0.0,
         test_nms_thresh=0.5,
         test_topk_per_image=100,
+        compute_giou=False,
     ):
         """
         NOTE: this interface is experimental.
@@ -408,6 +406,7 @@ class FastRCNNOutputLayers(nn.Module):
         self.test_score_thresh = test_score_thresh
         self.test_nms_thresh = test_nms_thresh
         self.test_topk_per_image = test_topk_per_image
+        self.compute_giou = compute_giou
 
     @classmethod
     def from_config(cls, cfg, input_shape):
@@ -420,7 +419,8 @@ class FastRCNNOutputLayers(nn.Module):
             "smooth_l1_beta"        : cfg.MODEL.ROI_BOX_HEAD.SMOOTH_L1_BETA,
             "test_score_thresh"     : cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST,
             "test_nms_thresh"       : cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST,
-            "test_topk_per_image"   : cfg.TEST.DETECTIONS_PER_IMAGE
+            "test_topk_per_image"   : cfg.TEST.DETECTIONS_PER_IMAGE,
+            "compute_giou"          : cfg.MODEL.ROI_BOX_HEAD.USE_GIOU
             # fmt: on
         }
 
@@ -448,11 +448,13 @@ class FastRCNNOutputLayers(nn.Module):
         losses = FastRCNNOutputs(
             self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
         ).losses()
-        pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)
-        pred_boxes = torch.cat(pred_boxes)
-        losses.update({"loss_giou": FastRCNNOutputs(
-            self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
-        ).giou_loss(pred_boxes)})
+        if self.compute_giou:
+            with torch.no_grad():
+                pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)
+                pred_boxes = torch.cat(pred_boxes)
+            losses.update({"loss_giou": FastRCNNOutputs(
+                self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+            ).giou_loss(pred_boxes)})
 
         return losses
 
@@ -533,4 +535,3 @@ class FastRCNNOutputLayers(nn.Module):
         num_inst_per_image = [len(p) for p in proposals]
         probs = F.softmax(scores, dim=-1)
         return probs.split(num_inst_per_image, dim=0)
-

@@ -1,10 +1,10 @@
 _BASE_: "../Base-RCNN-FPN.yaml"
 DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train", )
+  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
   TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
-  RPN:
-    USE_GIOU: True
+  ROI_HEADS:
+    DML_HEAD: True
   MASK_ON: False
   RESNETS:
     DEPTH: 50
@@ -31,10 +31,10 @@ SOLVER:
   IMS_PER_BATCH: 2
   BASE_LR: 0.0025
   WEIGHT_DECAY: 0.0001
-  STEPS: (0, 12288, 19660)
-  MAX_ITER: 24575 # 5 epocas
+  STEPS: (0, 2674, 4828)
+  MAX_ITER: 5348 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/giou/faster_base"
+OUTPUT_DIR: "results/dml/faster_base_hd"
 TEST:
   DETECTIONS_PER_IMAGE: 1

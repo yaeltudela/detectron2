@@ -98,9 +98,6 @@ def gt_to_coco(root_dir, coco_info, categories, split_name):
                 box = [int(b) for b in box]
                 area = float((mask != 0).sum() / (mask.shape[0] * mask.shape[1]))
 
-                # only for debug reasons
-                if row['class'] not in categories.keys():
-                    print(row)
                 # add used categories to dataset
                 if categories[row['class']]['name'] not in true_categories:
                     true_categories.append(categories[row['class']]['name'])

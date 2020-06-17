@@ -311,18 +311,14 @@ class RPN(nn.Module):
         )
 
         if self.giou_loss is not None:
-            # print(cat(pred_anchor_deltas, dim=1).shape, gt_anchor_deltas.shape, anchors.shape)
-            gt_anchor_boxes = [self.box2box_transform.apply_deltas(d,anchors) for d in gt_anchor_deltas]
-            gt_anchor_boxes = torch.stack(gt_anchor_boxes)
-            pred_anchor_boxes = [self.box2box_transform.apply_deltas(d, anchors) for d in cat(pred_anchor_deltas, dim=1)]
-            pred_anchor_boxes = torch.stack(pred_anchor_boxes)
-            # print(gt_anchor_boxes.shape, pred_anchor_boxes.shape)
-            # print("-----")
-            # print("giou", pred_anchor_boxes[pos_mask].shape)
+            with torch.no_grad():
+                gt_anchor_boxes = [self.box2box_transform.apply_deltas(d,anchors) for d in gt_anchor_deltas]
+                gt_anchor_boxes = torch.stack(gt_anchor_boxes)
+                pred_anchor_boxes = [self.box2box_transform.apply_deltas(d, anchors) for d in cat(pred_anchor_deltas, dim=1)]
+                pred_anchor_boxes = torch.stack(pred_anchor_boxes)
             giou_rpn_loss = self.giou_loss(pred_anchor_boxes[pos_mask], gt_anchor_boxes[pos_mask])
 
         valid_mask = gt_labels >= 0
-        # print("obj", cat(pred_objectness_logits, dim=1)[valid_mask].shape)
         objectness_loss = F.binary_cross_entropy_with_logits(
             cat(pred_objectness_logits, dim=1)[valid_mask],
             gt_labels[valid_mask].to(torch.float32),

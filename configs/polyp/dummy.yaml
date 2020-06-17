@@ -1,4 +1,4 @@
-_BASE_: "../Base-RCNN-FPN.yaml"
+_BASE_: "Base-RCNN-FPN.yaml"
 DATASETS:
   TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
   TEST: ("CVC_VideoClinicDB_test",)
@@ -6,9 +6,9 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
+  PROPOSAL_GENERATOR:
+    MIN_SIZE: 10
+    MAX_SIZE: 170
 INPUT:
 #  CROP:
 #    ENABLED: True
