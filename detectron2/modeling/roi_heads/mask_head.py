@@ -1,6 +1,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 from typing import List
 import fvcore.nn.weight_init as weight_init
+import pycocotools.mask as mask_util
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -20,7 +22,7 @@ The registered object will be called with `obj(cfg, input_shape)`.
 """
 
 
-def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
+def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on=False, vis_period=0):
     """
     Compute the mask prediction loss defined in the Mask R-CNN paper.
 
@@ -45,6 +47,7 @@ def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
 
     gt_classes = []
     gt_masks = []
+    mask_ratios = []
     for instances_per_image in instances:
         if len(instances_per_image) == 0:
             continue
@@ -52,14 +55,36 @@ def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
             gt_classes_per_image = instances_per_image.gt_classes.to(dtype=torch.int64)
             gt_classes.append(gt_classes_per_image)
 
+        if maskiou_on:
+            cropped_mask = instances_per_image.gt_masks.crop(instances_per_image.proposal_boxes.tensor)
+            cropped_mask = torch.tensor(
+                [mask_util.area(mask_util.frPyObjects([p for p in obj], box[3]-box[1], box[2]-box[0])).sum().astype(float)
+                for obj, box in zip(cropped_mask.polygons, instances_per_image.proposal_boxes.tensor)]
+                )
+
+            mask_ratios.append(
+                (cropped_mask / instances_per_image.gt_masks.area())
+                .to(device=pred_mask_logits.device).clamp(min=0., max=1.)
+            )
+
         gt_masks_per_image = instances_per_image.gt_masks.crop_and_resize(
             instances_per_image.proposal_boxes.tensor, mask_side_len
         ).to(device=pred_mask_logits.device)
         # A tensor of shape (N, M, M), N=#instances in the image; M=mask_side_len
         gt_masks.append(gt_masks_per_image)
 
+    gt_classes = cat(gt_classes, dim=0)
+
     if len(gt_masks) == 0:
-        return pred_mask_logits.sum() * 0
+        if maskiou_on:
+            selected_index = torch.arange(pred_mask_logits.shape[0], device=pred_mask_logits.device)
+            selected_mask = pred_mask_logits[selected_index, gt_classes]
+            mask_num, mask_h, mask_w = selected_mask.shape
+            selected_mask = selected_mask.reshape(mask_num, 1, mask_h, mask_w)
+            return pred_mask_logits.sum() * 0, selected_mask, gt_classes, None
+
+        else:
+            return pred_mask_logits.sum() * 0
 
     gt_masks = cat(gt_masks, dim=0)
 
@@ -67,7 +92,7 @@ def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
         pred_mask_logits = pred_mask_logits[:, 0]
     else:
         indices = torch.arange(total_num_masks)
-        gt_classes = cat(gt_classes, dim=0)
+        # gt_classes = cat(gt_classes, dim=0)
         pred_mask_logits = pred_mask_logits[indices, gt_classes]
 
     if gt_masks.dtype == torch.bool:
@@ -75,7 +100,7 @@ def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
     else:
         # Here we allow gt_masks to be float as well (depend on the implementation of rasterize())
         gt_masks_bool = gt_masks > 0.5
-    gt_masks = gt_masks.to(dtype=torch.float32)
+    gt_masks_float = gt_masks.to(dtype=torch.float32)
 
     # Log the training accuracy (using gt classes and 0.5 threshold)
     mask_incorrect = (pred_mask_logits > 0.0) != gt_masks_bool
@@ -92,14 +117,39 @@ def mask_rcnn_loss(pred_mask_logits, instances, vis_period=0):
     storage.put_scalar("mask_rcnn/false_negative", false_negative)
     if vis_period > 0 and storage.iter % vis_period == 0:
         pred_masks = pred_mask_logits.sigmoid()
-        vis_masks = torch.cat([pred_masks, gt_masks], axis=2)
+        vis_masks = torch.cat([pred_masks, gt_masks_float], axis=2)
         name = "Left: mask prediction;   Right: mask GT"
         for idx, vis_mask in enumerate(vis_masks):
             vis_mask = torch.stack([vis_mask] * 3, axis=0)
             storage.put_image(name + f" ({idx})", vis_mask)
 
-    mask_loss = F.binary_cross_entropy_with_logits(pred_mask_logits, gt_masks, reduction="mean")
-    return mask_loss
+    mask_loss = F.binary_cross_entropy_with_logits(pred_mask_logits, gt_masks_float, reduction="mean")
+
+    if maskiou_on:
+        mask_ratios = cat(mask_ratios, dim=0)
+        value_eps = 1e-10 * torch.ones(gt_masks.shape[0], device=gt_classes.device, dtype=mask_ratios.dtype)
+        mask_ratios = torch.max(mask_ratios, value_eps)
+
+        pred_masks = pred_mask_logits > 0
+
+        mask_targets_full_area = gt_masks.sum(dim=[1, 2]) / mask_ratios
+        # mask_ovr = pred_masks * gt_masks
+        mask_ovr_area = (pred_masks * gt_masks).sum(dim=[1, 2]).float()
+        mask_union_area = pred_masks.sum(dim=[1, 2]) + mask_targets_full_area - mask_ovr_area
+        value_1 = torch.ones(pred_masks.shape[0], device=gt_classes.device, dtype=mask_union_area.dtype)
+        value_0 = torch.zeros(pred_masks.shape[0], device=gt_classes.device, dtype=mask_ovr_area.dtype)
+        mask_union_area = torch.max(mask_union_area, value_1)
+        mask_ovr_area = torch.max(mask_ovr_area, value_0)
+        maskiou_targets = mask_ovr_area / mask_union_area
+        # selected_index = torch.arange(pred_mask_logits.shape[0], device=gt_classes.device)
+        # selected_mask = pred_mask_logits[selected_index, gt_classes]
+        mask_num, mask_h, mask_w = pred_mask_logits.shape
+        selected_mask = pred_mask_logits.reshape(mask_num, 1, mask_h, mask_w)
+        selected_mask = selected_mask.sigmoid()
+
+        return mask_loss, selected_mask, gt_classes, maskiou_targets.detach()
+    else:
+        return mask_loss
 
 
 def mask_rcnn_inference(pred_mask_logits, pred_instances):
@@ -149,7 +199,7 @@ class BaseMaskRCNNHead(nn.Module):
     """
 
     @configurable
-    def __init__(self, *, vis_period=0):
+    def __init__(self, *, vis_period=0, maskiou_on=False, mask_attention=False):
         """
         NOTE: this interface is experimental.
 
@@ -158,10 +208,16 @@ class BaseMaskRCNNHead(nn.Module):
         """
         super().__init__()
         self.vis_period = vis_period
+        self.maskiou_on = maskiou_on
+        self.mask_attention = mask_attention
 
     @classmethod
     def from_config(cls, cfg, input_shape):
-        return {"vis_period": cfg.VIS_PERIOD}
+        return {
+            "vis_period": cfg.VIS_PERIOD,
+            "maskiou_on": cfg.MODEL.MASKIOU_ON,
+            "mask_attention": cfg.MODEL.ROI_MASK_HEAD.ATTENTION,
+        }
 
     def forward(self, x, instances: List[Instances]):
         """
@@ -179,7 +235,14 @@ class BaseMaskRCNNHead(nn.Module):
         """
         x = self.layers(x)
         if self.training:
-            return {"loss_mask": mask_rcnn_loss(x, instances, self.vis_period)}
+            if self.maskiou_on:
+                loss, selected_mask, labels, maskiou_targets = mask_rcnn_loss(x, instances, maskiou_on=self.maskiou_on, vis_period=self.vis_period)
+                return {"loss_mask": loss}, selected_mask, labels, maskiou_targets
+            elif self.mask_attention:
+                return {
+                    "loss_mask": mask_rcnn_loss(x, instances, maskiou_on=self.maskiou_on, vis_period=self.vis_period)}, x
+            else:
+                return {"loss_mask": mask_rcnn_loss(x, instances, maskiou_on=self.maskiou_on, vis_period=self.vis_period)}
         else:
             mask_rcnn_inference(x, instances)
             return instances

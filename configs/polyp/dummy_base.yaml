@@ -2,13 +2,16 @@ _BASE_: "Base-RCNN-FPN.yaml"
 DATASETS:
   TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
   TEST: ("CVC_VideoClinicDB_test",)
+#  TRAIN: ("CVC_VideoClinicDB_train", )
+#  TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
+  WEIGHTS: "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"
   MASK_ON: False
   RESNETS:
-    DEPTH: 50
-  PROPOSAL_GENERATOR:
-    MIN_SIZE: 10
-    MAX_SIZE: 170
+    DEPTH: 101
+#  PROPOSAL_GENERATOR:
+#    MIN_SIZE: 10
+#    MAX_SIZE: 170
 INPUT:
 #  CROP:
 #    ENABLED: True
@@ -32,7 +35,13 @@ SOLVER:
   STEPS: (0, 2674, 4828)
   MAX_ITER: 5348 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
+#  IMS_PER_BATCH: 2
+#  BASE_LR: 0.0025
+#  WEIGHT_DECAY: 0.0001
+#  STEPS: (0, 12288, 19660)
+#  MAX_ITER: 24575 # 5 epocas
+#  LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/test"
+OUTPUT_DIR: "results/dummy2"
 TEST:
   DETECTIONS_PER_IMAGE: 1

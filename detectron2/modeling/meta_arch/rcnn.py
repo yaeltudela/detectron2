@@ -1,5 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import logging
+from copy import deepcopy
+
 import numpy as np
 import torch
 from torch import nn
@@ -38,6 +40,10 @@ class GeneralizedRCNN(nn.Module):
         assert len(cfg.MODEL.PIXEL_MEAN) == len(cfg.MODEL.PIXEL_STD)
         self.register_buffer("pixel_mean", torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(cfg.MODEL.PIXEL_STD).view(-1, 1, 1))
+
+        self.prev_proposals = None
+        self.prev_gt_instances = None
+
 
     @property
     def device(self):
@@ -123,6 +129,8 @@ class GeneralizedRCNN(nn.Module):
 
         if self.proposal_generator:
             proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
+            # self.prev_proposals = deepcopy(proposals)
+            # self.prev_gt_instances = deepcopy(gt_instances)
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]

@@ -1,7 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import logging
 import torch
-from fvcore.nn import smooth_l1_loss
+from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss, sigmoid_focal_loss_jit
 from torch import nn
 from torch.nn import functional as F
 
@@ -213,6 +213,8 @@ class FastRCNNOutputs(object):
                 storage.put_scalar("fast_rcnn/false_negative", num_false_negative / num_fg)
 
     def giou_loss(self, pred_boxes):
+
+        from fvcore.nn import giou_loss
         if self._no_instances:
             return 0.0 * self.pred_proposal_deltas.sum()
 
@@ -240,6 +242,16 @@ class FastRCNNOutputs(object):
         else:
             self._log_accuracy()
             return F.cross_entropy(self.pred_class_logits, self.gt_classes, reduction="mean")
+
+    def focal_loss(self, num_classes):
+        if self._no_instances:
+            return 0.0 * self.pred_class_logits.sum()
+        else:
+            self._log_accuracy()
+            # prepare gt_classes as one_hot enmcoded tensor
+            targets = torch.zeros((self.gt_classes.size(0), num_classes + 1), dtype=torch.float64, device=self.gt_classes.device)
+            targets[range(self.gt_classes.size(0)), self.gt_classes] = 1
+            return sigmoid_focal_loss(self.pred_class_logits, targets, alpha=0.25, gamma=2, reduction="mean")
 
     def smooth_l1_loss(self):
         """
@@ -391,6 +403,7 @@ class FastRCNNOutputLayers(nn.Module):
         input_size = input_shape.channels * (input_shape.width or 1) * (input_shape.height or 1)
         # The prediction layer for num_classes foreground classes and one background class
         # (hence + 1)
+        self.num_classes = num_classes
         self.cls_score = Linear(input_size, num_classes + 1)
         num_bbox_reg_classes = 1 if cls_agnostic_bbox_reg else num_classes
         box_dim = len(box2box_transform.weights)
@@ -448,6 +461,9 @@ class FastRCNNOutputLayers(nn.Module):
         losses = FastRCNNOutputs(
             self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
         ).losses()
+        # losses.update({"loss_fcls": FastRCNNOutputs(
+        #     self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+        # ).focal_loss(self.num_classes)})
         if self.compute_giou:
             with torch.no_grad():
                 pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)

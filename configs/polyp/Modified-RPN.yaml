@@ -9,7 +9,7 @@ MODEL:
     IN_FEATURES: ["res2", "res3", "res4", "res5"]
   ANCHOR_GENERATOR:
     SIZES: [[32], [64], [128], [256]]  # One size for each in feature map
-    ASPECT_RATIOS: [[0.5, 1.0, 2.0]]  # Three aspect ratios (same for all in feature maps)
+    ASPECT_RATIOS: [[0.25, 0.5, 1.0, 1.5, 2.0]]  # Three aspect ratios (same for all in feature maps)
   RPN:
     IN_FEATURES: ["p2", "p3", "p4", "p5"]
     PRE_NMS_TOPK_TRAIN: 2000  # Per FPN level
@@ -21,8 +21,7 @@ MODEL:
     POST_NMS_TOPK_TEST: 1000
 
     NMS_THRESH: 0.7
-    IOU_THRESHOLDS : [0.3, 0.8]
-    BOUNDARY_THRESH: 10
+    IOU_THRESHOLDS : [0.3, 0.6]
     POSITIVE_FRACTION: 0.25
 
   ROI_HEADS:

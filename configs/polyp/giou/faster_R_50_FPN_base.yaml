@@ -1,19 +1,14 @@
 _BASE_: "../Base-RCNN-FPN.yaml"
 DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train",  )
-  TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
+  TRAIN: ("CVC_VideoClinicDB_train", )
+  TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
+  ROI_BOX_HEAD:
+    USE_GIOU: True
 INPUT:
-  CROP:
-    ENABLED: True
-    SIZE: (0.9, 0.9)
-
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
@@ -26,6 +21,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/ablation/crops"
+OUTPUT_DIR: "results/giou/weight_l1"
 TEST:
   DETECTIONS_PER_IMAGE: 1

@@ -28,6 +28,9 @@ _C.MODEL.KEYPOINT_ON = False
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
 
+_C.MODEL.MASKIOU_ON = False
+_C.MODEL.MASKIOU_LOSS_WEIGHT = 1.0
+
 # Path (a file path, or URL like detectron2://.., https://..) to a checkpoint file
 # to be loaded to the model. You can find available models in the model zoo.
 _C.MODEL.WEIGHTS = ""
@@ -93,6 +96,9 @@ _C.INPUT.COLOR_JITTER.HUE = (1., 1.)
 
 _C.INPUT.GBLUR_K_SIZE = 3
 _C.INPUT.GBLUR_PROB_TRAIN = 0.0
+
+_C.INPUT.ROTATION = False
+_C.INPUT.ROTATION_ANGLES = (0., 0.)
 
 # -----------------------------------------------------------------------------
 # Dataset
@@ -290,7 +296,7 @@ _C.MODEL.ROI_HEADS.PROPOSAL_APPEND_GT = True
 
 _C.MODEL.ROI_HEADS.REFINE = False # TODO experiments to test
 _C.MODEL.ROI_HEADS.DML_HEAD = False # TODO experiments to test
-
+_C.MODEL.ROI_HEADS.EMBEDDING_SIZE = 64
 _C.MODEL.ROI_HEADS.LOSS_WEIGHTS = (1, 1, 1)
 
 # ---------------------------------------------------------------------------- #
@@ -356,6 +362,13 @@ _C.MODEL.ROI_MASK_HEAD.CLS_AGNOSTIC_MASK = False
 # Type of pooling operation applied to the incoming feature map for each RoI
 _C.MODEL.ROI_MASK_HEAD.POOLER_TYPE = "ROIAlignV2"
 
+_C.MODEL.ROI_MASK_HEAD.ATTENTION = False
+
+# ---------------------------------------------------------------------------- #
+# MaskIOU Head
+# ---------------------------------------------------------------------------- #
+_C.MODEL.ROI_MASKIOU_HEAD = CN()
+_C.MODEL.ROI_MASKIOU_HEAD.NAME = "MaskIoUHead"
 
 # ---------------------------------------------------------------------------- #
 # Keypoint Head
@@ -618,7 +631,7 @@ _C.TEST.PRECISE_BN = CN({"ENABLED": False})
 _C.TEST.PRECISE_BN.NUM_ITER = 200
 
 
-_C.TEST.GIANA_METRICS = False
+_C.TEST.GIANA_METRICS = "old"
 
 # ---------------------------------------------------------------------------- #
 # Misc options

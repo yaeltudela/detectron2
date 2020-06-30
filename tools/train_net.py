@@ -163,6 +163,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+
     register_polyp_datasets()
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)

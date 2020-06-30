@@ -3,64 +3,82 @@ import os
 from detectron2.data import MetadataCatalog, DatasetCatalog
 from detectron2.data.datasets import load_coco_json
 
+polyp_categories = {
+    "AD": {
+        'id': 1,
+        'name': 'AD',
+        'supercategory': 'polyp',
+    },
+    "NAD": {
+        'id': 2,
+        'name': 'NAD',
+        'supercategory': 'polyp',
+    },
 
-def register_polyp_datasets():
-    polyp_categories = {
-        "AD": {
-            'id': 1,
-            'name': 'AD',
-            'supercategory': 'polyp',
-        },
-        "NAD": {
-            'id': 2,
-            'name': 'NAD',
-            'supercategory': 'polyp',
-        },
+}
 
+only_polyp_categories = {
+    "Polyp": {
+        'id': 1,
+        'name': 'Polyp',
+        'supercategory': 'polyp',
+    },
+}
+
+polyp_dataset_categories_polyp = ["Polyp"]
+
+polyp_datasets = {
+    "CVC_VideoClinicDB_train": {
+        "split": "train.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "coco"
+    },
+    "CVC_VideoClinicDB_valid": {
+        "split": "valid.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "coco"
+    },
+    "CVC_VideoClinicDB_test": {
+        "split": "test.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "giana"
+    },
+    "CVC_ClinicDB": {
+        "split": "clinic.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "coco"
+    },
+    "CVC_ColonDB": {
+        "split": "colon.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "coco"
+    },
+    "CVC_HDClassif": {
+        "split": "hdClassif.json",
+        "categories": ["AD", "NAD"],
+        "evaluator_type": "coco"
     }
-    polyp_datasets = {
-        "CVC_VideoClinicDB_train": {
-            "split": "train.json",
-            "categories": ["AD", "NAD"],
-            "evaluator_type": "coco"
-        },
-        "CVC_VideoClinicDB_valid": {
-            "split": "valid.json",
-            "categories": ["AD", "NAD"],
-            "evaluator_type": "coco"
-        },
-        "CVC_VideoClinicDB_test": {
-            "split": "test.json",
-            "categories": ["AD", "NAD"],
-            "evaluator_type": "giana"
-        },
-        "CVC_ClinicDB": {
-            "split": "clinic.json",
-            "categories": ["AD", "NAD"],
-            "evaluator_type": "coco"
-        },
-        "CVC_ColonDB": {
-            "split": "colon.json",
-            "categories": ["AD", "NAD"],
-            "evaluator_type": "coco"
-        },
-        "CVC_HDClassif": {
-            "split": "hdClassif.json",
-            "categories": ["AD", "NAD"],
-            # "categories": ["AD", "NAD", "Polyp"],
-            "evaluator_type": "coco"
-        }
 
-    }
+}
+
+
+def register_polyp_datasets(only_polyp=False):
+    polyp_cats = only_polyp_categories if only_polyp else polyp_categories
 
     for dataset_name, dataset_data in polyp_datasets.items():
         root_dir = os.path.join("datasets", dataset_name, "images")
-        annot_file = os.path.join("datasets", dataset_name, "annotations", dataset_data['split'])
+        if only_polyp:
+            annot_file = os.path.join("datasets", dataset_name, "annotations", dataset_data['split'].replace(".json", "_polyp.json"))
+        else:
+            annot_file = os.path.join("datasets", dataset_name, "annotations", dataset_data['split'])
 
-        thing_ids = [v["id"] for k, v in polyp_categories.items() if k in dataset_data['categories']]
+        print(annot_file)
+        dataset_data['categories'] = polyp_dataset_categories_polyp if only_polyp else dataset_data['categories']
+        print(dataset_data['categories'])
+        thing_ids = [v["id"] for k, v in polyp_cats.items() if k in dataset_data['categories']]
         # Mapping from the incontiguous COCO category id to an id in [0, 79]
         thing_dataset_id_to_contiguous_id = {k: i for i, k in enumerate(thing_ids)}
-        thing_classes = [v["name"] for k, v in polyp_categories.items() if k in dataset_data['categories']]
+        thing_classes = [v["name"] for k, v in polyp_cats.items() if k in dataset_data['categories']]
 
         metadata = {
             "thing_classes": thing_classes,

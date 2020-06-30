@@ -1,3 +1,4 @@
+import os
 import cv2
 import pandas as pd
 from tqdm import tqdm
@@ -69,43 +70,72 @@ def compare_models(in_a, in_b, dataset_images_path):
     vid.release()
 
 
-def process_videos():
-    last_seq = 1
+def process_videos(df, out="vids"):
+    os.makedirs(out, exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    vid = cv2.VideoWriter('seq_{}.avi'.format(last_seq), fourcc, 30.0, (384, 288))
-    for i, row in df.iterrows():
-        if row.sequence != last_seq:
-            vid.release()
-            last_seq = row.sequence
-            vid = cv2.VideoWriter('seq_{}.avi'.format(last_seq), fourcc, 30.0, (384, 288))
+    vid = None
+    sequences = df.sequence.unique()
+    for seq in sequences:
+        if vid is None:
+            vid = cv2.VideoWriter('{}/seq_{}.avi'.format(out, seq), fourcc, 30.0, (384, 288))
 
-        im = cv2.imread(images_path + row.image)
+        filtered_df = df[df['sequence'] == seq]
+        for frame in df[df['sequence'] == seq].frame.unique():
+            rows = filtered_df[filtered_df.frame == frame]
+            im = cv2.imread(images_path + rows.image.unique()[0])
 
-        loc_response = row.localized
+            for i, row in rows.iterrows():
+                loc_response = row.localized
 
-        color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
-        if color is not None:
-            box = row.pred_box
-            box = [int(float(x)) for x in box.strip("[]").split(",")]
+                color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
+                if color is not None:
+                    box = row.pred_box
+                    box = [int(float(x)) for x in box.strip("[]").split(",")]
 
-            xy = (box[0], box[1])
-            xy2 = (box[2], box[3])
+                    xy = (box[0], box[1])
+                    xy2 = (box[2], box[3])
 
-            im = cv2.rectangle(im, xy, xy2, color, thickness=2)
+                    im = cv2.rectangle(im, xy, xy2, color, thickness=2)
 
-        vid.write(im)
-    vid.release()
+            vid.write(im)
+
+        vid.release()
+        vid = None
+
+
+    # for i, row in df.iterrows():
+    #     if row.sequence != last_seq:
+    #         vid.release()
+    #         last_seq = row.sequence
+    #         vid = cv2.VideoWriter('{}/seq_{}.avi'.format(out, last_seq), fourcc, 30.0, (384, 288))
+    #
+    #     im = cv2.imread(images_path + row.image)
+    #
+    #     loc_response = row.localized
+    #
+    #     color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
+    #     if color is not None:
+    #         box = row.pred_box
+    #         box = [int(float(x)) for x in box.strip("[]").split(",")]
+    #
+    #         xy = (box[0], box[1])
+    #         xy2 = (box[2], box[3])
+    #
+    #         im = cv2.rectangle(im, xy, xy2, color, thickness=2)
+    #
+    #     vid.write(im)
+    # vid.release()
 
 
 if __name__ == '__main__':
-    model = "baselines/faster/faster_all_hd"
+    model = "baselines/faster_base"
     input_file = "../results/{}/inference/giana/results.csv".format(model)
     images_path = "../datasets/CVC_VideoClinicDB_test/images/"
     df = pd.read_csv(input_file)
 
-    model2 = "tests"
+    model2 = "hd_test_giou_da_rpn_polyp"
     input_b = input_file.replace(model, model2)
     # blue model  ; green model b
-    compare_models(input_file, input_b, images_path)
+    # compare_models(input_file, input_b, images_path)
 
-    # process_videos()
+    process_videos(df)

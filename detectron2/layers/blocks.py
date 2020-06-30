@@ -3,7 +3,7 @@
 
 from torch import nn
 
-from .batch_norm import FrozenBatchNorm2d
+from .batch_norm import FrozenBatchNorm2d, BatchNorm2d
 
 
 class CNNBlockBase(nn.Module):

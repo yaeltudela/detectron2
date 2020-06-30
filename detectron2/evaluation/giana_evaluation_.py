@@ -3,7 +3,6 @@ import os
 import cv2
 import pandas as pd
 from pycocotools.coco import COCO
-from tqdm import tqdm
 
 from detectron2.data import MetadataCatalog
 from detectron2.evaluation.evaluator import DatasetEvaluator
@@ -12,7 +11,7 @@ from detectron2.structures import Boxes, Instances
 
 class GianaEvaluator(DatasetEvaluator):
 
-    def __init__(self, dataset_name, output_dir, thresholds=None, metric_type='new', save_patches=False) -> None:
+    def __init__(self, dataset_name, output_dir, thresholds=None, old_metric=False, metric_type=None, save_patches=False) -> None:
         self.dataset_name = MetadataCatalog.get(dataset_name).name.split("__")[0]
         self.classes_id = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
         self.annot_file = MetadataCatalog.get(dataset_name).get('annot_file')
@@ -24,8 +23,7 @@ class GianaEvaluator(DatasetEvaluator):
         self.detection_folder = os.path.join(output_dir, "detection")
         self.localization_folder = os.path.join(output_dir, "localization")
         self.classification_folder = os.path.join(output_dir, "classification")
-        self.metric_type = metric_type
-        self.iou_th = 0.4
+        self.old_metric = old_metric
         self.eval_function = self._set_eval_function()
         self.save_patches = save_patches
         # self.save_patches = True
@@ -72,7 +70,7 @@ class GianaEvaluator(DatasetEvaluator):
 
             gt_anns = self.coco_gt.loadAnns(self.coco_gt.getAnnIds(imgIds=im_id))
             gt_boxes = [ann['bbox'] for ann in gt_anns]
-            gt_classes = [ann['category_id'] - 1 for ann in gt_anns]
+            gt_classes = [ann['category_id'] for ann in gt_anns]
 
             if gt_anns:
                 if pred_boxes.tensor.size(0) > 0:
@@ -80,63 +78,40 @@ class GianaEvaluator(DatasetEvaluator):
                     matchable_gt = list(range(len(gt_anns)))
                     matchable_pred = list(range(pred_boxes.tensor.size(0)))
 
-                    total = len(matchable_pred) + len(matchable_gt)
-
                     for pred_idx, (pred_bbox, pred_score, pred_class) in enumerate(
                             zip(pred_boxes, pred_scores, pred_classes)):
                         for gt_idx, (gt_bbox, gt_class) in enumerate(zip(gt_boxes, gt_classes)):
                             # pred_bbox --> XYXY; gt_bbox --> XYWH
-                            gt_bbox = [gt_bbox[0], gt_bbox[1], gt_bbox[0] + gt_bbox[2], gt_bbox[1] + gt_bbox[3]]  # XYXY
+                            gt_bbox = [gt_bbox[0], gt_bbox[1], gt_bbox[0] + gt_bbox[2], gt_bbox[1] + gt_bbox[3]] # XYXY
                             if self.eval_function(pred_bbox, gt_bbox):
                                 if gt_idx in matchable_gt and pred_idx in matchable_pred:
                                     # TP
                                     matchable_pred.remove(pred_idx)
                                     matchable_gt.remove(gt_idx)
-                                    total -= 2
-
                                     eval_classif = self._is_polyp_classified(pred_class, gt_class)
                                     self._partial_results.append([im_name, "TP", "TP", eval_classif, pred_class.item(), gt_class, pred_score.item(), pred_bbox.cpu().numpy().tolist(), gt_bbox])
-
                                     self.maybe_save_patch(im_name, pred_bbox, type="TP/{}".format(gt_class), margin=10)
-                    if total != 0:
-                        eval_classif = "NA"
-                        pred_class = -1
-                        pred_score = -1
-                        pred_bbox = -1
-                        for unmatched_gt in matchable_gt:
-                            self._partial_results.append([im_name, "FN", "FN", eval_classif, pred_class, gt_classes[unmatched_gt], pred_score, pred_bbox, gt_boxes[unmatched_gt]])
 
-                        gt_class = -1
-                        gt_bbox = -1
-                        for unmatched_pred in matchable_pred:
-                            self._partial_results.append([im_name, "FP", "FP", eval_classif, pred_classes[unmatched_pred].item(), gt_class, pred_scores[unmatched_pred].item(), pred_boxes.tensor[unmatched_pred].cpu().numpy().tolist(), gt_bbox])
-                            self.maybe_save_patch(im_name, pred_boxes.tensor[unmatched_pred], type='FP', margin=10)
+                    for unmatched_gt in matchable_gt:
+                        self._partial_results.append([im_name, "FN", "FN", "NA", -1, gt_classes[unmatched_gt], -1, -1, -1])
+
+                    for unmatched_pred in matchable_pred:
+                        self._partial_results.append(
+                            [im_name, "FP", "FP", "NA", pred_classes[unmatched_pred].item(), -1, pred_scores[unmatched_pred].item(), pred_boxes.tensor[unmatched_pred].cpu().numpy().tolist(), -1])
+                        self.maybe_save_patch(im_name, pred_boxes.tensor[unmatched_pred], type='FP', margin=10)
+
                 else:
                     # FN de todos los gt anns
-                    eval_classif = "NA"
-                    pred_class = -1
-                    pred_score = -1
-                    pred_bbox = -1
                     for idx, (gt_bbox, gt_class) in enumerate(zip(gt_boxes, gt_classes)):
-                        self._partial_results.append([im_name, "FN", "FN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
+                        self._partial_results.append([im_name, "FN", "FN", "NA", -1, gt_class, -1, -1, gt_bbox])
             else:
                 if pred_boxes.tensor.size(0) > 0:
                     # FP de todos los pred anns
-                    eval_classif = "NA"
-                    gt_class = -1
-                    gt_bbox = -1
                     for pred_bbox, pred_score, pred_class in zip(pred_boxes, pred_scores, pred_classes):
-                        self._partial_results.append([im_name, "FP", "FP", eval_classif, pred_class.item(), gt_class, pred_score.item(), pred_bbox.cpu().numpy().tolist(), gt_bbox])
-                        self.maybe_save_patch(im_name, pred_bbox, type="FP", margin=10)
+                        self._partial_results.append([im_name, "FP", "FP", "NA", -1, -1, -1, -1, -1])
                 else:
                     # TN x 1
-                    eval_classif = "NA"
-                    pred_class = -1
-                    gt_class = -1
-                    pred_score = -1
-                    pred_bbox = -1
-                    gt_bbox = -1
-                    self._partial_results.append([im_name, "TN", "TN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
+                    self._partial_results.append([im_name, "TN", "TN", "NA", -1, -1, -1, -1, -1])
 
     def _add_row(self, df, row):
         df.loc[len(df)] = row
@@ -169,11 +144,6 @@ class GianaEvaluator(DatasetEvaluator):
 
                 miou, ious = self.compute_miou(over_threshold.pred_box, over_threshold.gt_box)
 
-                # _, ious2 = self.compute_miou(under_threshold.pred_box, under_threshold.gt_box)
-                #
-                # ious = ious + ious2
-                # miou = sum(ious) / len(ious)
-                # print(miou)
                 over_threshold_det = filtered_det[th_cond].drop_duplicates(subset="image")
                 under_threshold_det = filtered_det[~th_cond].drop_duplicates(subset="image")
 
@@ -233,14 +203,9 @@ class GianaEvaluator(DatasetEvaluator):
         self.results.to_csv(os.path.join(self.output_folder, "results.csv"), index=False)
 
     def _set_eval_function(self):
-        if self.metric_type == 'old':
-            print("Giana eval - challenge metric")
+        if self.old_metric:
             return self.old_eval
-        elif self.metric_type == 'iou':
-            print("Giana eval - IoU metric")
-            return self.iou_eval(self.iou_th)
         else:
-            print("Giana eval - Yael metric")
             return self.new_eval
 
     def compute_average_metrics(self, df, n_sequences, save_folder):
@@ -305,7 +270,7 @@ class GianaEvaluator(DatasetEvaluator):
 
     def _is_polyp_classified(self, pred, gt):
         if pred == gt:
-            if pred == 0:
+            if pred == 2:
                 return "TP"
             elif pred == 1:
                 return "TN"
@@ -314,7 +279,7 @@ class GianaEvaluator(DatasetEvaluator):
         else:
             if pred == 1:
                 return "FP"
-            elif pred == 0:
+            elif pred == 2:
                 return "FN"
             else:
                 raise Exception("Pred {} - GT {}".format(pred, gt))
@@ -331,26 +296,6 @@ class GianaEvaluator(DatasetEvaluator):
             im_file = os.path.join(self.dataset_folder, "images", im_name)
             im = cv2.imread(im_file)
 
-            xmin = int(max(pred_bbox[0] - margin, 0))
-            xmax = int(min(im.shape[1], pred_bbox[2] + margin))
-            ymin = int(max(pred_bbox[1] - margin, 0))
-            ymax = int(min(im.shape[0], pred_bbox[3] + margin))
-
-            if xmin < xmax and ymin < ymax:
-                im = im[ymin:ymax, xmin:xmax, :]
-
-                save = os.path.join(self.output_folder, "patches", type, im_name)
-                cv2.imwrite(save, im)
-
-    def iou_eval(self, iou_th):
-
-        def iou_eval_fun(pred_box, gt_box):
-            iou = compute_iou(pred_box, gt_box)
-
-            return iou >= iou_th
-
-        return iou_eval_fun
-
     def compute_miou(self, pred_boxes, gt_boxes):
         ious = []
 
@@ -362,7 +307,6 @@ class GianaEvaluator(DatasetEvaluator):
         miou = (sum(ious) + 1e-6) / (len(ious) + 1e-6)
 
         return miou, ious
-
 
 def compute_iou(pred_box, gt_box):
     if pred_box == -1 or gt_box == -1:
@@ -390,11 +334,19 @@ def compute_iou(pred_box, gt_box):
 
     return iou
 
-def offline_eval_from_coco_res(evaluator, coco_res):
+
+def offline_evaluation(dataset_name, output_dir, results_file):
+    evaluator = GianaEvaluator(dataset_name, output_dir)
+    evaluator.results = pd.read_csv(results_file)
+    evaluator.evaluate()
+
+
+def offline_eval_from_coco_res(dataset_name, output_dir, coco_res):
     import numpy as np
     import torch
+    evaluator = GianaEvaluator(dataset_name, output_dir)
 
-    for det_img in tqdm(coco_res.imgs.values()):
+    for det_img in coco_res.imgs.values():
         im_id = det_img['id']
         file_name = det_img['file_name']
         image_size = (det_img['height'], det_img['width'])
@@ -408,7 +360,7 @@ def offline_eval_from_coco_res(evaluator, coco_res):
         for det_annot in det_anns:
             boxes.append(det_annot['bbox'])
             scores.append(det_annot['score'])
-            pred_classes.append(det_annot['category_id'] - 1)
+            pred_classes.append(det_annot['category_id'])
 
         boxes = np.array(boxes)
         if boxes.size == 0:
@@ -417,17 +369,20 @@ def offline_eval_from_coco_res(evaluator, coco_res):
             boxes[:, 2:] += boxes[:, :2]
             boxes = Boxes(torch.tensor(boxes).view(-1, 4))
         scores = torch.tensor(scores).view(-1, 1)
-        pred_classes = torch.tensor(np.array(pred_classes).reshape(-1, 1))
+        pred_classes = np.array(pred_classes).reshape(-1, 1)
 
         det_input = {
             'image_id': im_id,
             'file_name': file_name
         }
         det_out = {
-            'pred_boxes': boxes,  # Boxes
-            'scores': scores,  # np array
-            'pred_classes': pred_classes  # tensor
+                'pred_boxes': boxes, # Boxes
+                'scores': scores, # np array
+                'pred_classes': pred_classes # tensor
         }
+
+        print(det_input)
+        print(det_out)
 
         det_out = Instances(image_size, **det_out)
 
@@ -436,14 +391,12 @@ def offline_eval_from_coco_res(evaluator, coco_res):
     evaluator.evaluate()
 
 
+
 if __name__ == '__main__':
+    from argparse import ArgumentParser
     from detectron2.utils.register_datasets import register_polyp_datasets
 
     register_polyp_datasets()
 
     gt = COCO("/home/devsodin/PycharmProjects/detectron2/datasets/CVC_VideoClinicDB_test/annotations/test.json")
-    print(gt.cats)
-    dataset_name = "CVC_VideoClinicDB_test"
-    output_dir = "/home/devsodin/test"
-    evaluator = GianaEvaluator(dataset_name, output_dir, metric_type='new')
-    offline_eval_from_coco_res(evaluator, gt.loadRes("/home/devsodin/PycharmProjects/detectron2/results/refine/faster_base_hd/inference/coco_instances_results.json"))
+    offline_eval_from_coco_res("CVC_VideoClinicDB_test", "/home/devsodin/test", gt.loadRes("/home/devsodin/PycharmProjects/detectron2/results/baselines/faster_all/inference/coco_instances_results.json"))

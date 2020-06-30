@@ -508,6 +508,8 @@ def build_transform_gen(cfg, is_train):
         hue_range = cfg.INPUT.COLOR_JITTER.HUE
         hflip = cfg.INPUT.HFLIP
         vflip = cfg.INPUT.VFLIP
+        rotation = cfg.INPUT.ROTATION
+        rotation_angles = cfg.INPUT.ROTATION_ANGLES
     else:
         min_size = cfg.INPUT.MIN_SIZE_TEST
         max_size = cfg.INPUT.MAX_SIZE_TEST
@@ -522,7 +524,8 @@ def build_transform_gen(cfg, is_train):
         contrast_range = (1.,1.)
         saturation_range = (1.,1.)
         hue_range = (0., 0.)
-
+        rotation = False
+        rotation_angles = ()
 
     if sample_style == "range":
         assert len(min_size) == 2, "more than 2 ({}) min_size(s) are provided for ranges".format(
@@ -533,6 +536,8 @@ def build_transform_gen(cfg, is_train):
     tfm_gens = []
     tfm_gens.append(T.ResizeShortestEdge(min_size, max_size, sample_style))
     if is_train:
+        if rotation:
+            tfm_gens.append(T.RandomRotation(rotation_angles, expand=False, sample_style='range'))
         if hflip:
             tfm_gens.append(T.RandomFlip())
         if vflip:
@@ -547,7 +552,7 @@ def build_transform_gen(cfg, is_train):
             tfm_gens.append(T.RandomSaturation(saturation_range[0], saturation_range[1], prob=color_jitter_prob))
             assert len(hue_range) == 2, "hue must be a tuple of two floats."
             tfm_gens.append(T.RandomHue(hue_range[0], hue_range[1], prob=color_jitter_prob))
-
-        tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
+        if gaussian_blur_prob > 0:
+            tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens

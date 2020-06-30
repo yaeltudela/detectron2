@@ -253,7 +253,7 @@ def get_detection_dataset_dicts(
     return dataset_dicts
 
 
-def build_detection_train_loader(cfg, mapper=None):
+def  build_detection_train_loader(cfg, mapper=None):
     """
     A data loader is created by the following steps:
 

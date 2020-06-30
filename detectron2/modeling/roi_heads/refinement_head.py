@@ -1,11 +1,12 @@
 import torch
+from fvcore.nn import sigmoid_focal_loss
 from torch import nn
 from torch.nn import functional as F
 
 from detectron2.layers import Conv2d, get_norm
 
 
-def refine_inference_single_instance(score, instance):
+def refine_inference_single_instance(pred_logits, instance):
     box_pred_class = instance.get('pred_classes')
     scores_pred = instance.get('scores')
 
@@ -18,33 +19,22 @@ def refine_inference_single_instance(score, instance):
     # print(F.softmax(score, dim=0))
     # print("------------")
 
-    scores_pred *= F.softmax(score, dim=0)[box_pred_class]
+    pred_class = pred_logits.max(dim=0)[1]
 
-    instance.scores = scores_pred
+    if pred_class == box_pred_class:
+        return instance
+    else:
+        print("changes")
+        scores_pred *= pred_logits.sigmoid()[box_pred_class]
+        instance.scores = scores_pred
     return instance
 
-def metric_inference_single_instance(score, instance):
-    box_pred_class = instance.get('pred_classes')
-    scores_pred = instance.get('scores')
-
-    # print("------------")
-    # print(box_pred_class)
-    # print(box_pred_class.shape)
-    # print(scores_pred)
-    # print(scores_pred.shape)
-    # print(score)
-    # print(F.softmax(score, dim=0))
-    # print("------------")
-
-    scores_pred *= F.softmax(score, dim=0)[box_pred_class]
-
-    instance.scores = scores_pred
-    return instance
 
 class RefinementHead(nn.Module):
 
     def __init__(self, num_classes) -> None:
         super().__init__()
+        self.num_classes = num_classes
 
         self.c1 = Conv2d(
             256,
@@ -56,27 +46,32 @@ class RefinementHead(nn.Module):
             activation=F.relu, )
         self.c3 = Conv2d(
             256,
-            num_classes + 1,
+            64,
             kernel_size=1,
             bias=not "",
             norm=get_norm("", 128),
             activation=F.relu, )
-        self.avg = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(7 * 7 * 64, num_classes + 1)
 
     def forward(self, x, instances):
         if self.training:
             x = self.c1(x)
             x = self.c3(x)
-            print(x.shape)
 
-            x = self.avg(x)
-            return {"loss_refine": F.cross_entropy(x.squeeze(), instances.long()) / x.size(0)}
+            x = self.fc(x.view(x.size(0), -1))
+            targets = torch.zeros((instances.size(0), self.num_classes + 1), dtype=torch.float64,
+                                  device=instances.device)
+            targets[range(instances.size(0)), instances] = 1
+            loss = sigmoid_focal_loss(x.squeeze(), targets, reduction='mean')
+            # loss = F.binary_cross_entropy_with_logits(x.squeeze(), targets, reduction='mean')
+            return {"loss_refine": loss}
         else:
             inst = []
             if x.numel() > 0:
                 x = self.c1(x)
                 x = self.c3(x)
-                x = self.avg(x)
+                x = self.fc(x.view(x.size(0), -1))
+
                 for el, instance in zip(x, instances):
                     instance = refine_inference_single_instance(x.squeeze(), instance)
                     inst.append(instance)
@@ -90,6 +85,8 @@ class RefinementHeadMetric(nn.Module):
     def __init__(self, num_classes, embedding_size=128) -> None:
         super().__init__()
 
+        self.num_classes = num_classes
+
         self.c1 = Conv2d(
             256,
             256,
@@ -100,31 +97,25 @@ class RefinementHeadMetric(nn.Module):
             activation=F.relu, )
         self.c3 = Conv2d(
             256,
-            num_classes + 1,
-            kernel_size=3,
-            padding=1,
+            64,
+            kernel_size=1,
             bias=not "",
             norm=get_norm("", 128),
             activation=F.relu, )
-        self.gab = nn.AdaptiveAvgPool2d(32)
-        self.fc = nn.Linear(self.gab.output_size ** 2 * (num_classes + 1), embedding_size)
+        self.fc = nn.Linear(7 * 7 * 64, embedding_size)
 
     def forward(self, x, instances):
 
         if self.training:
             x = self.c1(x)
             x = self.c3(x)
-            x = self.gab(x)
-            x = x.view(x.size(0), -1)
-            x = self.fc(x)
+            x = self.fc(x.view(x.size(0), -1))
             return x
         else:
             if x.numel() > 0:
                 x = self.c1(x)
                 x = self.c3(x)
-                x = self.gab(x)
-                x = x.view(x.size(0), -1)
-                x = self.fc(x)
+                x = self.fc(x.view(x.size(0), -1))
 
                 return x, instances
             else:
@@ -144,4 +135,5 @@ def recompute_proto_centroids(proto_centroids, embeddings, targets):
         #     if embeddings[targets == k].numel() > 0:
         #         proto_centroids[k] = torch.cat([embeddings[targets == k], proto_centroids[k][None, ...]]).mean(dim=0)
         # return proto_centroids
+
 

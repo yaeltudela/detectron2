@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn.functional as F
-from fvcore.nn import smooth_l1_loss
+from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss
 from torch import nn
 
 from detectron2.config import configurable
@@ -324,8 +324,15 @@ class RPN(nn.Module):
             gt_labels[valid_mask].to(torch.float32),
             reduction="sum",
         )
+        objectness_loss_focal = sigmoid_focal_loss(
+            cat(pred_objectness_logits, dim=1)[valid_mask],
+            gt_labels[valid_mask].to(torch.float32),
+            reduction="sum",
+        )
+
         normalizer = self.batch_size_per_image * num_images
         losses = {
+            # "loss_rpn_fcls": objectness_loss_focal / normalizer,
             "loss_rpn_cls": objectness_loss / normalizer,
             "loss_rpn_loc": localization_loss / normalizer,
         }

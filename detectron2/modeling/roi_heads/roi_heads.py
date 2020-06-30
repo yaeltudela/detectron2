@@ -9,7 +9,9 @@ from torch import nn
 
 from detectron2.config import configurable
 from detectron2.layers import ShapeSpec
-from detectron2.modeling.roi_heads.refinement_head import RefinementHead, RefinementHeadMetric, recompute_proto_centroids
+from detectron2.modeling.roi_heads.maskiou_head import build_maskiou_head, mask_iou_loss, mask_iou_inference
+from detectron2.modeling.roi_heads.refinement_head import RefinementHead, RefinementHeadMetric, \
+    recompute_proto_centroids
 from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.registry import Registry
@@ -489,24 +491,28 @@ class StandardROIHeads(ROIHeads):
 
     @configurable
     def __init__(
-        self,
-        *,
-        box_in_features: List[str],
-        box_pooler: ROIPooler,
-        box_head: nn.Module,
-        box_predictor: nn.Module,
-        mask_in_features: Optional[List[str]] = None,
-        mask_pooler: Optional[ROIPooler] = None,
-        mask_head: Optional[nn.Module] = None,
-        keypoint_in_features: Optional[List[str]] = None,
-        keypoint_pooler: Optional[ROIPooler] = None,
-        keypoint_head: Optional[nn.Module] = None,
-        train_on_pred_boxes: bool = False,
-        refine: bool = False,
-        use_giou: bool = False,
-        loss_weights: tuple = (1, 1, 1),
-        metric_head: bool = False,
-        **kwargs
+            self,
+            *,
+            box_in_features: List[str],
+            box_pooler: ROIPooler,
+            box_head: nn.Module,
+            box_predictor: nn.Module,
+            mask_in_features: Optional[List[str]] = None,
+            mask_pooler: Optional[ROIPooler] = None,
+            mask_head: Optional[nn.Module] = None,
+            keypoint_in_features: Optional[List[str]] = None,
+            keypoint_pooler: Optional[ROIPooler] = None,
+            keypoint_head: Optional[nn.Module] = None,
+            train_on_pred_boxes: bool = False,
+            maskiou_on: bool = False,
+            maskiou_head:Optional[nn.Module] = None,
+            maskiou_weight:float = 0.,
+            refine: bool = False,
+            use_giou: bool = False,
+            loss_weights: tuple = (1, 1, 1),
+            metric_head: bool = False,
+            embedding_size:int = 64,
+            **kwargs
     ):
         """
         NOTE: this interface is experimental.
@@ -533,6 +539,10 @@ class StandardROIHeads(ROIHeads):
         self.box_predictor = box_predictor
 
         self.mask_on = mask_in_features is not None
+        self.maskiou_on = maskiou_on
+        if self.maskiou_on:
+            self.maskiou_head = maskiou_head
+            self.maskiou_weight = maskiou_weight
         if self.mask_on:
             self.mask_in_features = mask_in_features
             self.mask_pooler = mask_pooler
@@ -552,25 +562,28 @@ class StandardROIHeads(ROIHeads):
 
         self.metric_head = metric_head
         if self.metric_head:
-            embedding_size = 64
             self.refine_head = RefinementHeadMetric(self.num_classes, embedding_size)
-            self.refine_miner = miners.TripletMarginMiner(margin=0.5)
+            self.refine_miner = miners.TripletMarginMiner(margin=1, type_of_triplets='hard')
             self.metric_loss = losses.TripletMarginLoss(margin=0.5)
-            load_centroids = False
-            self.proto_centroids = torch.load("centroids.pkl") if load_centroids else torch.zeros((self.num_classes + 1, embedding_size), device='cuda')
+            load_centroids = True
+            self.proto_centroids = torch.load("centroids.pkl") if load_centroids else torch.zeros(
+                (self.num_classes + 1, embedding_size), device='cuda')
+            if self.proto_centroids.size(1) != embedding_size:
+                self.proto_centroids = torch.zeros((self.num_classes + 1, embedding_size), device='cuda')
             print("DML head added")
 
         self.use_giou = use_giou
         print("GIOU / weights: {}".format(loss_weights) if use_giou else "")
-        self.box_reg_weight = loss_weights[0]
-        self.cls_weights = loss_weights[1]
+        self.l1_weight = loss_weights[0]
+        self.cross_entropy_weight = loss_weights[1]
         self.giou_weight = loss_weights[2] if self.use_giou else 0
+
 
     def reweight_losses(self, losses):
         if "loss_box_reg" in losses.keys():
-            losses.update({"loss_box_reg": losses["loss_box_reg"] * self.box_reg_weight})
+            losses.update({"loss_box_reg": losses["loss_box_reg"] * self.l1_weight})
         if "loss_cls" in losses.keys():
-            losses.update({"loss_cls": losses["loss_cls"] * self.cls_weights})
+            losses.update({"loss_cls": losses["loss_cls"] * self.cross_entropy_weight})
         if "loss_giou" in losses.keys():
             losses.update({"loss_giou": losses["loss_giou"] * self.giou_weight})
         return losses
@@ -591,11 +604,15 @@ class StandardROIHeads(ROIHeads):
             ret.update(cls._init_mask_head(cfg, input_shape))
         if inspect.ismethod(cls._init_keypoint_head):
             ret.update(cls._init_keypoint_head(cfg, input_shape))
-        if inspect.isfunction(cls._forward_refine_score_box):
-            ret["refine"] = cfg.MODEL.ROI_HEADS.REFINE
+        if inspect.ismethod(cls._init_maskiou_head):
+            ret.update(cls._init_maskiou_head(cfg))
+        ret["refine"] = cfg.MODEL.ROI_HEADS.REFINE
         ret["use_giou"] = cfg.MODEL.ROI_BOX_HEAD.USE_GIOU
         ret["loss_weights"] = cfg.MODEL.ROI_HEADS.LOSS_WEIGHTS
         ret['metric_head'] = cfg.MODEL.ROI_HEADS.DML_HEAD
+        ret['embedding_size'] = cfg.MODEL.ROI_HEADS.EMBEDDING_SIZE
+        ret['maskiou_on'] = cfg.MODEL.MASKIOU_ON
+
         return ret
 
     @classmethod
@@ -662,6 +679,16 @@ class StandardROIHeads(ROIHeads):
         return ret
 
     @classmethod
+    def _init_maskiou_head(cls, cfg):
+        if not cfg.MODEL.MASKIOU_ON:
+            return {"maskiou_on": False}
+        ret = {"maskiou_on": True}
+        ret['maskiou_head'] = build_maskiou_head(cfg)
+        ret['maskiou_weight'] = cfg.MODEL.MASKIOU_LOSS_WEIGHT
+
+        return ret
+
+    @classmethod
     def _init_keypoint_head(cls, cfg, input_shape):
         if not cfg.MODEL.KEYPOINT_ON:
             return {}
@@ -697,6 +724,14 @@ class StandardROIHeads(ROIHeads):
         """
         See :class:`ROIHeads.forward`.
         """
+        # from kornia.utils import tensor_to_image
+        # from matplotlib import pyplot as plt
+        # for image, proposal, target in zip(images, proposals, targets):
+        #     print(image)
+        #     print(proposal)
+        #     print(target)
+        #     plt.imshow(tensor_to_image(image)[::-1] * 255)
+        #     plt.show()
         del images
         if self.training:
             assert targets
@@ -712,7 +747,12 @@ class StandardROIHeads(ROIHeads):
             # Usually the original proposals used by the box head are used by the mask, keypoint
             # heads. But when `self.train_on_pred_boxes is True`, proposals will contain boxes
             # predicted by the box head.
-            losses.update(self._forward_mask(features, proposals))
+            if self.maskiou_on:
+                (mask_loss, selected_mask, labels, maskiou_targets), mask_features = self._forward_mask(features, proposals)
+                losses.update(mask_loss)
+                losses.update(self._forward_maskiou(mask_features, proposals, selected_mask, labels, maskiou_targets))
+            else:
+                losses.update(self._forward_mask(features, proposals))
             losses.update(self._forward_keypoint(features, proposals))
             return proposals, losses
         else:
@@ -721,6 +761,9 @@ class StandardROIHeads(ROIHeads):
             # applied to the top scoring box detections.
             if self.refine:
                 pred_instances = self._forward_refine_score_box(features, instances=pred_instances)
+            if self.metric_head:
+                pred_instances = self._forward_metric(features, pred_instances)
+
             pred_instances = self.forward_with_given_boxes(features, pred_instances)
             return pred_instances, {}
 
@@ -747,7 +790,11 @@ class StandardROIHeads(ROIHeads):
         assert not self.training
         assert instances[0].has("pred_boxes") and instances[0].has("pred_classes")
 
-        instances = self._forward_mask(features, instances)
+        if self.maskiou_on:
+            instances, mask_features = self._forward_mask(features, instances)
+            instances = self._forward_maskiou(mask_features, instances)
+        else:
+            instances = self._forward_mask(features, instances)
         instances = self._forward_keypoint(features, instances)
         return instances
 
@@ -772,7 +819,30 @@ class StandardROIHeads(ROIHeads):
             loss_dict = self.metric_loss(embeddings, targets[mask], miner_output)
             return loss_dict / embeddings.size(0)
         else:
-            return instances
+            pred_boxes = [x.pred_boxes for x in instances]
+            mask_features = self.box_pooler(features, pred_boxes)
+            pred_embeddings, pred_instances = self.refine_head(mask_features, instances)
+
+            if pred_embeddings is not None:
+                dist_to_centroids = torch.cdist(pred_embeddings, self.proto_centroids)
+                probs_to_cls = dist_to_centroids.sigmoid()
+
+                n_pred_instances = []
+                for idx_instance, instance in enumerate(pred_instances):
+                    new_scores = []
+                    for idx_box, (pred_cls, score) in enumerate(zip(instance.pred_classes, instance.scores)):
+                        dml_pred_class = probs_to_cls[idx_instance * len(instance) + idx_box].max(dim=0)[1] + 1
+                        if pred_cls != dml_pred_class:
+                            new_scores.append(
+                                score * probs_to_cls[idx_instance * len(instance) + idx_box, pred_cls - 1])
+                        else:
+                            new_scores.append(score)
+                    instance.scores = torch.tensor(new_scores, dtype=instance.scores.dtype,
+                                                   device=instance.scores.device)
+                    n_pred_instances.append(instance)
+                pred_instances = n_pred_instances
+
+            return pred_instances
 
     def get_metric_samples(self, targets):
         """
@@ -796,12 +866,13 @@ class StandardROIHeads(ROIHeads):
         features = [features[f] for f in self.box_in_features]
         if self.training:
             # The loss is only defined on positive proposals.
-            proposals, _ = select_foreground_proposals(instances, self.num_classes)
-            proposal_boxes = [x.proposal_boxes for x in proposals]
+            # proposals, _ = select_foreground_proposals(instances, self.num_classes)
+            proposal_boxes = [x.proposal_boxes for x in instances]
             mask_features = self.box_pooler(features, proposal_boxes)
 
-            targets = torch.cat([proposal.get('gt_classes') for proposal in proposals])
-
+            targets = torch.cat([proposal.get('gt_classes') for proposal in instances])
+            # print(targets)
+            # print(targets.unique())
             return self.refine_head(mask_features, targets)
         else:
             pred_boxes = [x.pred_boxes for x in instances]
@@ -879,14 +950,49 @@ class StandardROIHeads(ROIHeads):
             proposals, _ = select_foreground_proposals(instances, self.num_classes)
             proposal_boxes = [x.proposal_boxes for x in proposals]
             mask_features = self.mask_pooler(features, proposal_boxes)
-            return self.mask_head(mask_features, proposals)
+            if self.maskiou_on:
+                return self.mask_head(mask_features, proposals), mask_features
+            else:
+                return self.mask_head(mask_features, proposals)
         else:
             pred_boxes = [x.pred_boxes for x in instances]
             mask_features = self.mask_pooler(features, pred_boxes)
-            return self.mask_head(mask_features, instances)
+            self.mask_head(mask_features, instances)
+
+            if self.maskiou_on:
+                return instances, mask_features
+            else:
+                return instances
+
+    def _forward_maskiou(self, features, instances, selected_mask=None, labels=None, targets=None):
+        """
+        Forward logic of the mask iou prediction branch.
+
+        Args:
+            features (list[Tensor]): #level input features for mask prediction
+            instances (list[Instances]): the per-image instances to train/predict masks.
+                In training, they can be the proposals.
+                In inference, they can be the predicted boxes.
+
+        Returns:
+            In training, a dict of losses.
+            In inference, calibrate instances' scores.
+        """
+        if not self.maskiou_on:
+            return {} if self.training else instances
+
+        if self.training:
+            pred_maskiou = self.maskiou_head(features, selected_mask)
+            return {"loss_maskiou": mask_iou_loss(labels, pred_maskiou, targets, self.maskiou_weight)}
+
+        else:
+            if features.size(0) > 0:
+                pred_maskiou = self.maskiou_head(features, torch.cat([i.pred_masks for i in instances], 0))
+                mask_iou_inference(instances, pred_maskiou)
+            return instances
 
     def _forward_keypoint(
-        self, features: Dict[str, torch.Tensor], instances: List[Instances]
+            self, features: Dict[str, torch.Tensor], instances: List[Instances]
     ) -> Union[Dict[str, torch.Tensor], List[Instances]]:
         """
         Forward logic of the keypoint prediction branch.

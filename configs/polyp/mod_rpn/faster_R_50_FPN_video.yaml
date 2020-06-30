@@ -6,21 +6,7 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
 INPUT:
-#  CROP:
-#    ENABLED: True
-#    SIZE: (0.9, 0.9)
-#  HFLIP: True
-#  COLOR_JITTER:
-#    ENABLED: True
-#    PROB: 0.3
-#    BRIGHTNESS: (0.9,1.1)
-#    SATURATION: (0.9,1.1)
-#    CONTRAST: (0.9,1.1)
-#    HUE: (-.05,0.05)
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288

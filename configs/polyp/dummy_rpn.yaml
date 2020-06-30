@@ -1,0 +1,41 @@
+_BASE_: "Modified-RPN.yaml"
+DATASETS:
+  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
+#  TRAIN: ("CVC_VideoClinicDB_train", )
+  TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
+
+MODEL:
+  MASK_ON: False
+  RESNETS:
+    DEPTH: 50
+  ROI_BOX_HEAD:
+    USE_GIOU: True
+  ROI_HEADS:
+    LOSS_WEIGHTS: (0., 1, 1)
+    DML_HEAD: True
+INPUT:
+  HFLIP: True
+  VFLIP: True
+  ROTATION: True
+  ROTATION_ANGLES: (-5,5)
+  MIN_SIZE_TRAIN: (288, 384, )
+  MAX_SIZE_TRAIN: 800
+  MIN_SIZE_TEST: 288
+  MAX_SIZE_TEST: 800
+SOLVER:
+  IMS_PER_BATCH: 2
+  BASE_LR: 0.0025
+  WEIGHT_DECAY: 0.0001
+  STEPS: (0, 2674, 4828)
+  MAX_ITER: 5348 # 5 epocas
+  LR_SCHEDULER_NAME: "WarmupCosineLR"
+#  IMS_PER_BATCH: 2
+#  BASE_LR: 0.0025
+#  WEIGHT_DECAY: 0.0001
+#  STEPS: (0, 12288, 19660)
+#  MAX_ITER: 24575 # 5 epocas
+#  LR_SCHEDULER_NAME: "WarmupCosineLR"
+
+OUTPUT_DIR: "results/test_giou_modRPN_da_hd"
+TEST:
+  DETECTIONS_PER_IMAGE: 1
