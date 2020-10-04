@@ -1,4 +1,4 @@
-_BASE_: "../Modified-RPN.yaml"
+_BASE_: "../Base-RCNN-FPN.yaml"
 DATASETS:
   TRAIN: ("CVC_VideoClinicDB_train",  )
   TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
@@ -7,11 +7,10 @@ MODEL:
   RESNETS:
     DEPTH: 50
 INPUT:
-  HFLIP: True
-  VFLIP: True
-  ROTATION: True
-  ROTATION_ANGLES: (-5,5)
-  MIN_SIZE_TRAIN: (288, 384, )
+  CROP:
+    ENABLED: True
+    SIZE: (0.9, 0.9)
+  MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
   MAX_SIZE_TEST: 800
@@ -23,6 +22,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/modified_rpn/faster_video_da"
+OUTPUT_DIR: "results/ablation/cropping"
 TEST:
   DETECTIONS_PER_IMAGE: 1

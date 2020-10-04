@@ -6,21 +6,9 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
+  ROI_HEADS:
+    REFINE_CLS: True
 INPUT:
-#  CROP:
-#    ENABLED: True
-#    SIZE: (0.9, 0.9)
-#  HFLIP: True
-#  COLOR_JITTER:
-#    ENABLED: True
-#    PROB: 0.3
-#    BRIGHTNESS: (0.9,1.1)
-#    SATURATION: (0.9,1.1)
-#    CONTRAST: (0.9,1.1)
-#    HUE: (-.05,0.05)
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
@@ -33,6 +21,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/baselines/faster_base"
+OUTPUT_DIR: "results/refine_cls/faster_base"
 TEST:
   DETECTIONS_PER_IMAGE: 1

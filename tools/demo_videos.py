@@ -35,7 +35,8 @@ def compare_models(in_a, in_b, dataset_images_path):
 
         loc_response = row.localized
 
-        color = (255,0, 0) if loc_response in ["TP", "FP"] else None
+        # blue
+        color = (255, 0, 0) if loc_response in ["TP", "FP"] else None
         if color is not None:
             box = row.pred_box
             box = [int(float(x)) for x in box.strip("[]").split(",")]
@@ -55,6 +56,7 @@ def compare_models(in_a, in_b, dataset_images_path):
 
             loc_response = row.localized
 
+            # green
             color = (0, 255,0) if loc_response in ["TP", "FP"] else None
             if color is not None:
                 box = row.pred_box
@@ -63,7 +65,7 @@ def compare_models(in_a, in_b, dataset_images_path):
                 xy = (box[0], box[1])
                 xy2 = (box[2], box[3])
 
-                im = cv2.rectangle(im, xy, xy2, color, thickness=1)
+                im = cv2.rectangle(im, xy, xy2, color, thickness=1, lineType=4)
 
         vid.write(im)
 
@@ -115,7 +117,7 @@ def process_videos(df, out="vids"):
     #
     #     color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
     #     if color is not None:
-    #         box = row.pred_box
+    #         box = row.pred_boxre
     #         box = [int(float(x)) for x in box.strip("[]").split(",")]
     #
     #         xy = (box[0], box[1])
@@ -127,15 +129,37 @@ def process_videos(df, out="vids"):
     # vid.release()
 
 
+def from_ims_to_vid(images_path, output_path, n_seq=18):
+    os.makedirs(output_path, exist_ok=True)
+    from glob import glob
+
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+
+    for seq in range(1, n_seq + 1):
+        ims = sorted(glob(images_path + "/{:03d}-*.png".format(seq)))
+        vid = cv2.VideoWriter('{}/seq_{}.avi'.format(output_path, seq), fourcc, 25.0, (768, 288))
+
+        for i in ims:
+            vid.write(cv2.imread(i))
+        vid.release()
+
+
 if __name__ == '__main__':
-    model = "baselines/faster_base"
+    input_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/images/"
+    output_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/vids/"
+
+    from_ims_to_vid(input_dir, output_dir)
+
+    dsfsadf
+
+    model = "baselines/faster_base_DC5"
     input_file = "../results/{}/inference/giana/results.csv".format(model)
     images_path = "../datasets/CVC_VideoClinicDB_test/images/"
     df = pd.read_csv(input_file)
 
-    model2 = "hd_test_giou_da_rpn_polyp"
+    model2 = "refine_cls/faster_post"
     input_b = input_file.replace(model, model2)
-    # blue model  ; green model b
+    # blue model  a; green model b
     # compare_models(input_file, input_b, images_path)
-
+    #
     process_videos(df)

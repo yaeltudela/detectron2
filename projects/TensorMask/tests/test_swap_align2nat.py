@@ -24,7 +24,7 @@ class SwapAlign2NatTest(unittest.TestCase):
         """
         op = SwapAlign2Nat(lambda_val, pad_val=0.0)
         input = torch.from_numpy(tensor[None, :, :, :].astype("float32"))
-        output = op.forward(input.cuda()).cpu().numpy()
+        output = op.forward(input.cuda(), ).cpu().numpy()
         return output[0]
 
 

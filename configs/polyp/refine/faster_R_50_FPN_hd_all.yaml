@@ -6,9 +6,6 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-  PROPOSAL_GENERATOR:
-    MIN_SIZE: 10
-    MAX_SIZE: 170
 INPUT:
   CROP:
     ENABLED: True
@@ -33,6 +30,6 @@ SOLVER:
   MAX_ITER: 5348 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/baselines/faster_all_hd"
+OUTPUT_DIR: "results/refine_cls/faster_all_hd"
 TEST:
   DETECTIONS_PER_IMAGE: 1

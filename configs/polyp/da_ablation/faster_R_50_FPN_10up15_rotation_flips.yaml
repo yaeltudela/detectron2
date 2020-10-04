@@ -6,15 +6,14 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
 INPUT:
+  VFLIP: True
+  HFLIP: True
   ROTATION: True
   ROTATION_ANGLES: (-10, 10)
-  MIN_SIZE_TRAIN: (288, )
+  MIN_SIZE_TRAIN: (432,)
   MAX_SIZE_TRAIN: 800
-  MIN_SIZE_TEST: 288
+  MIN_SIZE_TEST: 432
   MAX_SIZE_TEST: 800
 SOLVER:
   IMS_PER_BATCH: 2
@@ -23,6 +22,6 @@ SOLVER:
   STEPS: (0, 12288, 19660)
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
-OUTPUT_DIR: "results/ablation/rotation"
+OUTPUT_DIR: "results/ablation/up15_hvflips_10rotation"
 TEST:
   DETECTIONS_PER_IMAGE: 1

@@ -1,5 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import logging
+import math
+
 import torch
 from fvcore.nn import smooth_l1_loss, sigmoid_focal_loss, sigmoid_focal_loss_jit
 from torch import nn
@@ -12,7 +14,7 @@ from detectron2.structures import Boxes, Instances
 from detectron2.structures.boxes import generalized_box_iou
 from detectron2.utils.events import get_event_storage
 
-__all__ = ["fast_rcnn_inference", "FastRCNNOutputLayers"]
+__all__ = ["fast_rcnn_inference", "FastRCNNOutputLayers", "SplittedFastRCNNOutputLayers"]
 
 
 logger = logging.getLogger(__name__)
@@ -96,14 +98,12 @@ def fast_rcnn_inference_single_image(
     if not valid_mask.all():
         boxes = boxes[valid_mask]
         scores = scores[valid_mask]
-
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
     # Convert to Boxes to use the `clip` function ...
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
-
     # Filter results based on detection scores
     filter_mask = scores > score_thresh  # R x K
     # R' x 2. First column contains indices of the R predictions;
@@ -188,7 +188,7 @@ class FastRCNNOutputs(object):
             self.proposals = Boxes(torch.zeros(0, 4, device=self.pred_proposal_deltas.device))
         self._no_instances = len(proposals) == 0  # no instances found
 
-    def _log_accuracy(self):
+    def _log_accuracy(self, head="fast_rcnn"):
         """
         Log the accuracy metrics to EventStorage.
         """
@@ -207,14 +207,13 @@ class FastRCNNOutputs(object):
 
         storage = get_event_storage()
         if num_instances > 0:
-            storage.put_scalar("fast_rcnn/cls_accuracy", num_accurate / num_instances)
+            storage.put_scalar("{}/cls_accuracy", num_accurate / num_instances)
             if num_fg > 0:
-                storage.put_scalar("fast_rcnn/fg_cls_accuracy", fg_num_accurate / num_fg)
-                storage.put_scalar("fast_rcnn/false_negative", num_false_negative / num_fg)
+                storage.put_scalar("{}/fg_cls_accuracy".format(head), fg_num_accurate / num_fg)
+                storage.put_scalar("{}/false_negative".format(head), num_false_negative / num_fg)
 
     def giou_loss(self, pred_boxes):
 
-        from fvcore.nn import giou_loss
         if self._no_instances:
             return 0.0 * self.pred_proposal_deltas.sum()
 
@@ -230,7 +229,57 @@ class FastRCNNOutputs(object):
 
         return loss_giou.sum() / num_boxes
 
-    def softmax_cross_entropy_loss(self):
+    def compute_ciou(self, pred_boxes):
+
+        if self._no_instances:
+            return 0.0 * self.pred_proposal_deltas.sum()
+
+        gt_boxes = self.gt_boxes.tensor
+
+        x1, y1, x2, y2 = pred_boxes[0:, 0], pred_boxes[:, 1], pred_boxes[:, 2], pred_boxes[:, 3]
+        x1g, y1g, x2g, y2g = gt_boxes[:, 0], gt_boxes[:, 1], gt_boxes[:, 2], gt_boxes[:, 3]
+
+        x2 = torch.max(x1, x2)
+        y2 = torch.max(y1, y2)
+        w_pred = x2 - x1
+        h_pred = y2 - y1
+        w_gt = x2g - x1g
+        h_gt = y2g - y1g
+
+        x_center = (x2 + x1) / 2
+        y_center = (y2 + y1) / 2
+        x_center_g = (x1g + x2g) / 2
+        y_center_g = (y1g + y2g) / 2
+
+        xkis1 = torch.max(x1, x1g)
+        ykis1 = torch.max(y1, y1g)
+        xkis2 = torch.min(x2, x2g)
+        ykis2 = torch.min(y2, y2g)
+
+        xc1 = torch.min(x1, x1g)
+        yc1 = torch.min(y1, y1g)
+        xc2 = torch.max(x2, x2g)
+        yc2 = torch.max(y2, y2g)
+
+        intsctk = torch.zeros(x1.size()).to(pred_boxes)
+        mask = (ykis2 > ykis1) * (xkis2 > xkis1)
+        intsctk[mask] = (xkis2[mask] - xkis1[mask]) * (ykis2[mask] - ykis1[mask])
+        unionk = (x2 - x1) * (y2 - y1) + (x2g - x1g) * (y2g - y1g) - intsctk + 1e-7
+        iouk = intsctk / unionk
+
+        c = ((xc2 - xc1) ** 2) + ((yc2 - yc1) ** 2) + 1e-7
+        d = ((x_center - x_center_g) ** 2) + ((y_center - y_center_g) ** 2)
+        u = d / c
+        v = (4 / (math.pi ** 2)) * torch.pow((torch.atan(w_gt / h_gt) - torch.atan(w_pred / h_pred)), 2)
+        with torch.no_grad():
+            S = 1 - iouk
+            alpha = v / (S + v)
+        ciouk = iouk - (u + alpha * v)
+        ciouk = (1 - ciouk).sum(0) / pred_boxes.size(0)
+
+        return ciouk
+
+    def softmax_cross_entropy_loss(self, wce=False):
         """
         Compute the softmax cross entropy loss for box classification.
 
@@ -241,14 +290,21 @@ class FastRCNNOutputs(object):
             return 0.0 * self.pred_class_logits.sum()
         else:
             self._log_accuracy()
-            return F.cross_entropy(self.pred_class_logits, self.gt_classes, reduction="mean")
+            if wce:
+                gt_weights = torch.zeros(3, device=self.pred_class_logits.device)
+                tmp = self.gt_classes.unique(return_inverse=True, sorted=True)
+                tmp2 = (1. / tmp[1].bincount().float()).softmax(dim=0)
+                gt_weights[tmp[0]] = tmp2
+            else:
+                gt_weights=None
+            return F.cross_entropy(self.pred_class_logits, self.gt_classes, reduction="mean", weight=gt_weights)
 
     def focal_loss(self, num_classes):
         if self._no_instances:
             return 0.0 * self.pred_class_logits.sum()
         else:
             self._log_accuracy()
-            # prepare gt_classes as one_hot enmcoded tensor
+            # prepare gt_classes as one_hot encoded tensor
             targets = torch.zeros((self.gt_classes.size(0), num_classes + 1), dtype=torch.float64, device=self.gt_classes.device)
             targets[range(self.gt_classes.size(0)), self.gt_classes] = 1
             return sigmoid_focal_loss(self.pred_class_logits, targets, alpha=0.25, gamma=2, reduction="mean")
@@ -325,7 +381,7 @@ class FastRCNNOutputs(object):
     they are used to query information about the head predictions.
     """
 
-    def losses(self):
+    def losses(self, wce=False):
         """
         Compute the default losses for box head in Fast(er) R-CNN,
         with softmax cross entropy loss and smooth L1 loss.
@@ -334,7 +390,7 @@ class FastRCNNOutputs(object):
             A dict of losses (scalar tensors) containing keys "loss_cls" and "loss_box_reg".
         """
         return {
-            "loss_cls": self.softmax_cross_entropy_loss(),
+            "loss_cls": self.softmax_cross_entropy_loss(wce),
             "loss_box_reg": self.smooth_l1_loss(),
         }
 
@@ -362,7 +418,6 @@ class FastRCNNOutputs(object):
             boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image
         )
 
-
 class FastRCNNOutputLayers(nn.Module):
     """
     Two linear layers for predicting Fast R-CNN outputs:
@@ -383,6 +438,8 @@ class FastRCNNOutputLayers(nn.Module):
         test_nms_thresh=0.5,
         test_topk_per_image=100,
         compute_giou=False,
+        compute_ciou=False,
+        use_wce=False,
     ):
         """
         NOTE: this interface is experimental.
@@ -420,6 +477,8 @@ class FastRCNNOutputLayers(nn.Module):
         self.test_nms_thresh = test_nms_thresh
         self.test_topk_per_image = test_topk_per_image
         self.compute_giou = compute_giou
+        self.compute_ciou = compute_ciou
+        self.wce = use_wce
 
     @classmethod
     def from_config(cls, cfg, input_shape):
@@ -433,11 +492,13 @@ class FastRCNNOutputLayers(nn.Module):
             "test_score_thresh"     : cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST,
             "test_nms_thresh"       : cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST,
             "test_topk_per_image"   : cfg.TEST.DETECTIONS_PER_IMAGE,
-            "compute_giou"          : cfg.MODEL.ROI_BOX_HEAD.USE_GIOU
+            "compute_giou"          : cfg.MODEL.ROI_BOX_HEAD.USE_GIOU,
+            "compute_ciou": cfg.MODEL.ROI_BOX_HEAD.USE_CIOU,
+            "use_wce"               : cfg.MODEL.ROI_HEADS.WCE_LOSS,
             # fmt: on
         }
 
-    def forward(self, x):
+    def forward(self, x, x2=None):
         """
         Returns:
             Tensor: Nx(K+1) scores for each box
@@ -460,10 +521,8 @@ class FastRCNNOutputLayers(nn.Module):
         scores, proposal_deltas = predictions
         losses = FastRCNNOutputs(
             self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
-        ).losses()
-        # losses.update({"loss_fcls": FastRCNNOutputs(
-        #     self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
-        # ).focal_loss(self.num_classes)})
+        ).losses(self.wce)
+
         if self.compute_giou:
             with torch.no_grad():
                 pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)
@@ -471,6 +530,14 @@ class FastRCNNOutputLayers(nn.Module):
             losses.update({"loss_giou": FastRCNNOutputs(
                 self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
             ).giou_loss(pred_boxes)})
+
+        if self.compute_ciou:
+            with torch.no_grad():
+                pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)
+                pred_boxes = torch.cat(pred_boxes)
+            losses.update({"loss_ciou": FastRCNNOutputs(
+                self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+            ).compute_ciou(pred_boxes)})
 
         return losses
 
@@ -508,7 +575,6 @@ class FastRCNNOutputLayers(nn.Module):
         predict_boxes = self.box2box_transform.apply_deltas(
             proposal_deltas, proposal_boxes
         )  # Nx(KxB)
-
         K = predict_boxes.shape[1] // B
         if K > 1:
             gt_classes = torch.cat([p.gt_classes for p in proposals], dim=0)
@@ -551,3 +617,58 @@ class FastRCNNOutputLayers(nn.Module):
         num_inst_per_image = [len(p) for p in proposals]
         probs = F.softmax(scores, dim=-1)
         return probs.split(num_inst_per_image, dim=0)
+
+
+class SplittedFastRCNNOutputLayers(FastRCNNOutputLayers):
+    def losses(self, predictions, proposals):
+
+        scores, proposal_deltas = predictions
+        losses = {}
+        losses['loss_split_cls'] = FastRCNNOutputs(
+            self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+        ).softmax_cross_entropy_loss()
+
+        losses['loss_split_reg'] = FastRCNNOutputs(
+            self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+        ).smooth_l1_loss()
+
+        if self.compute_giou:
+            with torch.no_grad():
+                pred_boxes, _ = self.predict_boxes_for_gt_classes(predictions, proposals)
+                pred_boxes = torch.cat(pred_boxes)
+            losses.update({"loss_split_giou": FastRCNNOutputs(
+                self.box2box_transform, scores, proposal_deltas, proposals, self.smooth_l1_beta
+            ).giou_loss(pred_boxes)})
+
+        return losses
+
+    def inference(self, predictions, proposals):
+        boxes = self.predict_boxes(predictions, proposals)
+        scores = self.predict_probs(predictions, proposals)
+        # print(scores)
+        image_shapes = [x.image_size for x in proposals]
+        return fast_rcnn_inference(
+            boxes,
+            scores,
+            image_shapes,
+            self.test_score_thresh,
+            self.test_nms_thresh,
+            self.test_topk_per_image,
+        )
+
+    def forward(self, x, x2=None):
+        """
+        x = reg
+        x2 = cls
+        Returns:
+            Tensor: Nx(K+1) scores for each box
+            Tensor: Nx4 or Nx(Kx4) bounding box regression deltas.
+        """
+        if x.dim() > 2:
+            x = torch.flatten(x, start_dim=1)
+        proposal_deltas = self.bbox_pred(x)
+        if x2.dim() > 2:
+            x2 = torch.flatten(x2, start_dim=1)
+        scores = self.cls_score(x2)
+        return scores, proposal_deltas
+

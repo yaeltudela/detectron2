@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+python tools/visualize_json_results.py --input "results/results/all_exps/combi/losses_101_2x/inference/coco_instances_results.json" --output "results/results/all_exps/combi/losses_101_2x/inference/images/" --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5  --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5
+python tools/visualize_json_results.py --input "results/results/all_exps/final/f101_losses_concat/inference/coco_instances_results.json" --output "results/results/all_exps/final/f101_losses_concat/inference/images/" --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5  --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5
+python tools/visualize_json_results.py --input "results/results/all_exps/final/m101_sam_2x/inference/coco_instances_results.json" --output "results/results/all_exps/final/m101_sam_2x/inference/images/" --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5  --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5
+python tools/visualize_json_results.py --input "results/results/all_exps/final/m101_concat_sam_2x/inference/coco_instances_results.json" --output "results/results/all_exps/final/m101_concat_sam_2x/inference/images/" --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5  --dataset "CVC_VideoClinicDB_test" --conf-threshold 0.5

@@ -1,29 +1,15 @@
 _BASE_: "Base-RCNN-FPN.yaml"
 DATASETS:
-  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
-  TEST: ("CVC_VideoClinicDB_test",)
-#  TRAIN: ("CVC_VideoClinicDB_train", )
+#  TRAIN: ("CVC_ClinicDB", "CVC_ColonDB", "CVC_HDClassif" )
 #  TEST: ("CVC_VideoClinicDB_test",)
+  TRAIN: ("CVC_VideoClinicDB_train", )
+  TEST: ("CVC_VideoClinicDB_test",)
 MODEL:
   WEIGHTS: "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"
   MASK_ON: False
   RESNETS:
-    DEPTH: 101
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
+    DEPTH: 50
 INPUT:
-#  CROP:
-#    ENABLED: True
-#    SIZE: (0.9, 0.9)
-#  HFLIP: True
-#  COLOR_JITTER:
-#    ENABLED: True
-#    PROB: 0.3
-#    BRIGHTNESS: (0.9,1.1)
-#    SATURATION: (0.9,1.1)
-#    CONTRAST: (0.9,1.1)
-#    HUE: (-.05,0.05)
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288

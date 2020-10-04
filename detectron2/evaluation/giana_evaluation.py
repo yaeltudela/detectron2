@@ -12,23 +12,26 @@ from detectron2.structures import Boxes, Instances
 
 class GianaEvaluator(DatasetEvaluator):
 
-    def __init__(self, dataset_name, output_dir, thresholds=None, metric_type='new', save_patches=False) -> None:
+    def __init__(self, dataset_name, output_dir, thresholds=None, metric_type='new', save_patches=False, save_ims=()) -> None:
         self.dataset_name = MetadataCatalog.get(dataset_name).name.split("__")[0]
+        self.has_videos = "Video" in self.dataset_name
         self.classes_id = MetadataCatalog.get(dataset_name).get("thing_dataset_id_to_contiguous_id")
         self.annot_file = MetadataCatalog.get(dataset_name).get('annot_file')
 
         self.class_id_name = {v: k for k, v in
                               zip(MetadataCatalog.get(dataset_name).get("thing_classes"), self.classes_id.values())}
         self.dataset_folder = os.path.join("datasets", self.dataset_name)
-        self.output_folder = os.path.join(output_dir, "giana")
-        self.detection_folder = os.path.join(output_dir, "detection")
-        self.localization_folder = os.path.join(output_dir, "localization")
-        self.classification_folder = os.path.join(output_dir, "classification")
+        self.output_folder = os.path.join(output_dir, "giana_{}".format(dataset_name))
+        self.detection_folder = os.path.join(self.output_folder, "detection")
+        self.localization_folder = os.path.join(self.output_folder, "localization")
+        self.classification_folder = os.path.join(self.output_folder, "classification")
         self.metric_type = metric_type
         self.iou_th = 0.4
         self.eval_function = self._set_eval_function()
         self.save_patches = save_patches
         # self.save_patches = True
+        # save_ims = ("TP", "FP")
+        self.save_ims = save_ims
 
         if thresholds is None:
             self.thresholds = [x / 10 for x in range(10)]
@@ -53,6 +56,17 @@ class GianaEvaluator(DatasetEvaluator):
         if not os.path.exists(self.classification_folder):
             os.makedirs(self.classification_folder)
 
+        if not os.path.exists(os.path.join(self.output_folder, "res_ims")) and self.save_ims:
+            os.makedirs(os.path.join(self.output_folder, "res_ims"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_folder, "res_ims", "TP"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_folder, "res_ims", "FP"), exist_ok=True)
+
+        if not os.path.exists(os.path.join(self.output_folder, "patches")) and self.save_patches:
+            os.makedirs(os.path.join(self.output_folder, "patches"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_folder, "patches", "TP", "0"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_folder, "patches", "TP", "1"), exist_ok=True)
+            os.makedirs(os.path.join(self.output_folder, "patches", "FP"), exist_ok=True)
+
     def reset(self):
         self.results = pd.DataFrame(
             columns=["image", "detected", "localized", "classified", "pred_class", "gt_class",
@@ -60,6 +74,8 @@ class GianaEvaluator(DatasetEvaluator):
         self._partial_results = []
 
     def process(self, input, output):
+        added_tn = False
+
         for instance, output in zip(input, output):
             im_name = os.path.basename(instance['file_name'])
             im_id = instance['image_id']
@@ -79,8 +95,7 @@ class GianaEvaluator(DatasetEvaluator):
                     # both
                     matchable_gt = list(range(len(gt_anns)))
                     matchable_pred = list(range(pred_boxes.tensor.size(0)))
-
-                    total = len(matchable_pred) + len(matchable_gt)
+                    matched_gt = [False for i in matchable_gt]
 
                     for pred_idx, (pred_bbox, pred_score, pred_class) in enumerate(
                             zip(pred_boxes, pred_scores, pred_classes)):
@@ -88,29 +103,43 @@ class GianaEvaluator(DatasetEvaluator):
                             # pred_bbox --> XYXY; gt_bbox --> XYWH
                             gt_bbox = [gt_bbox[0], gt_bbox[1], gt_bbox[0] + gt_bbox[2], gt_bbox[1] + gt_bbox[3]]  # XYXY
                             if self.eval_function(pred_bbox, gt_bbox):
-                                if gt_idx in matchable_gt and pred_idx in matchable_pred:
+                                if gt_idx in matchable_gt and pred_idx in matchable_pred and not matched_gt[matchable_gt.index(gt_idx)]:
                                     # TP
+                                    matched_gt[matchable_gt.index(gt_idx)] = True
                                     matchable_pred.remove(pred_idx)
-                                    matchable_gt.remove(gt_idx)
-                                    total -= 2
 
                                     eval_classif = self._is_polyp_classified(pred_class, gt_class)
-                                    self._partial_results.append([im_name, "TP", "TP", eval_classif, pred_class.item(), gt_class, pred_score.item(), pred_bbox.cpu().numpy().tolist(), gt_bbox])
-
+                                    self._partial_results.append(
+                                        [im_name, "TP", "TP", eval_classif, pred_class.item(), gt_class,
+                                         pred_score.item(), pred_bbox.cpu().numpy().tolist(), gt_bbox])
                                     self.maybe_save_patch(im_name, pred_bbox, type="TP/{}".format(gt_class), margin=10)
-                    if total != 0:
-                        eval_classif = "NA"
-                        pred_class = -1
-                        pred_score = -1
-                        pred_bbox = -1
-                        for unmatched_gt in matchable_gt:
-                            self._partial_results.append([im_name, "FN", "FN", eval_classif, pred_class, gt_classes[unmatched_gt], pred_score, pred_bbox, gt_boxes[unmatched_gt]])
+                                    self.maybe_save_im(im_name, pred_boxes, pred_scores,  type="TP")
+                                else:
+                                    if pred_idx in matchable_pred:
+                                        matchable_pred.remove(pred_idx)
+                                    else:
+                                        # debug
+                                        print(matchable_gt, matchable_pred, matched_gt)
 
-                        gt_class = -1
-                        gt_bbox = -1
-                        for unmatched_pred in matchable_pred:
-                            self._partial_results.append([im_name, "FP", "FP", eval_classif, pred_classes[unmatched_pred].item(), gt_class, pred_scores[unmatched_pred].item(), pred_boxes.tensor[unmatched_pred].cpu().numpy().tolist(), gt_bbox])
-                            self.maybe_save_patch(im_name, pred_boxes.tensor[unmatched_pred], type='FP', margin=10)
+                    eval_classif = "NA"
+                    pred_class = -1
+                    pred_score = -1
+                    pred_bbox = -1
+                    for gt_idx, unmatched_gt in enumerate(matchable_gt):
+                        if not matched_gt[gt_idx]:
+                            self._partial_results.append(
+                                [im_name, "FN", "FN", eval_classif, pred_class, gt_classes[unmatched_gt], pred_score,
+                                 pred_bbox, gt_boxes[unmatched_gt]])
+
+                    gt_class = -1
+                    gt_bbox = -1
+                    for unmatched_pred in matchable_pred:
+                        self._partial_results.append(
+                            [im_name, "FP", "FP", eval_classif, pred_classes[unmatched_pred].item(), gt_class,
+                             pred_scores[unmatched_pred].item(),
+                             pred_boxes.tensor[unmatched_pred].cpu().numpy().tolist(), gt_bbox])
+                        self.maybe_save_patch(im_name, pred_boxes.tensor[unmatched_pred], type='FP', margin=10)
+                        self.maybe_save_im(im_name, pred_boxes, pred_scores, type="FP")
                 else:
                     # FN de todos los gt anns
                     eval_classif = "NA"
@@ -118,7 +147,8 @@ class GianaEvaluator(DatasetEvaluator):
                     pred_score = -1
                     pred_bbox = -1
                     for idx, (gt_bbox, gt_class) in enumerate(zip(gt_boxes, gt_classes)):
-                        self._partial_results.append([im_name, "FN", "FN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
+                        self._partial_results.append(
+                            [im_name, "FN", "FN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
             else:
                 if pred_boxes.tensor.size(0) > 0:
                     # FP de todos los pred anns
@@ -126,17 +156,26 @@ class GianaEvaluator(DatasetEvaluator):
                     gt_class = -1
                     gt_bbox = -1
                     for pred_bbox, pred_score, pred_class in zip(pred_boxes, pred_scores, pred_classes):
-                        self._partial_results.append([im_name, "FP", "FP", eval_classif, pred_class.item(), gt_class, pred_score.item(), pred_bbox.cpu().numpy().tolist(), gt_bbox])
+                        self._partial_results.append(
+                            [im_name, "FP", "FP", eval_classif, pred_class.item(), gt_class, pred_score.item(),
+                             pred_bbox.cpu().numpy().tolist(), gt_bbox])
                         self.maybe_save_patch(im_name, pred_bbox, type="FP", margin=10)
+                        self.maybe_save_im(im_name, pred_boxes, pred_scores, type="FP")
                 else:
                     # TN x 1
+                    if added_tn:
+                        print("uwu")
+                        # 9388	15097	17713	3292	215	0.246343848469987	0.052600707933147	11.94	20.27	0.5958	0.3834	0.7404	0.5052
+                        continue
+                    added_tn = True
                     eval_classif = "NA"
                     pred_class = -1
                     gt_class = -1
                     pred_score = -1
                     pred_bbox = -1
                     gt_bbox = -1
-                    self._partial_results.append([im_name, "TN", "TN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
+                    self._partial_results.append(
+                        [im_name, "TN", "TN", eval_classif, pred_class, gt_class, pred_score, pred_bbox, gt_bbox])
 
     def _add_row(self, df, row):
         df.loc[len(df)] = row
@@ -147,9 +186,13 @@ class GianaEvaluator(DatasetEvaluator):
         self.results = pd.DataFrame(self._partial_results,
                                     columns=["image", "detected", "localized", "classified", "pred_class", "gt_class",
                                              "score", "pred_box", "gt_box"])
-        self.results[['sequence', 'frame']] = self.results.image.str.split("-", expand=True)
+        if self.has_videos:
+            self.results[['sequence', 'frame']] = self.results.image.str.split("-", expand=True)
+        else:
+            self.results['sequence'] = self.results.apply(lambda x: 1, axis=1)
+            self.results['frame'] = self.results.image.apply(lambda x: x.split(".")[0])
 
-        sequences = pd.unique(self.results.sequence)
+        sequences = pd.unique(self.results.sequence) if self.has_videos else [1]
         dets = []
         locs = []
         classifs = []
@@ -169,11 +212,6 @@ class GianaEvaluator(DatasetEvaluator):
 
                 miou, ious = self.compute_miou(over_threshold.pred_box, over_threshold.gt_box)
 
-                # _, ious2 = self.compute_miou(under_threshold.pred_box, under_threshold.gt_box)
-                #
-                # ious = ious + ious2
-                # miou = sum(ious) / len(ious)
-                # print(miou)
                 over_threshold_det = filtered_det[th_cond].drop_duplicates(subset="image")
                 under_threshold_det = filtered_det[~th_cond].drop_duplicates(subset="image")
 
@@ -196,7 +234,8 @@ class GianaEvaluator(DatasetEvaluator):
 
                 loc_tp = loc.TP if "TP" in loc.keys() else 0
                 loc_fp = loc.FP if "FP" in loc.keys() else 0
-                loc_tn = (loc.TN if "TN" in loc.keys() else 0) + (under_loc.FP if "FP" in under_loc.keys() else 0)
+                loc_tn = (det.TN if "TN" in det.keys() else 0) + (under_det.FP if "FP" in under_det.keys() else 0)
+                # loc_tn = (loc.TN if "TN" in loc.keys() else 0) + (under_loc.FP if "FP" in under_loc.keys() else 0)
                 loc_fn = (loc.FN if "FN" in loc.keys() else 0) + (under_loc.TP if "TP" in under_loc.keys() else 0)
                 first_polyp = over_threshold[over_threshold.localized == "FN"].frame.apply(
                     lambda x: int(x.split(".")[0])).min()
@@ -275,11 +314,13 @@ class GianaEvaluator(DatasetEvaluator):
         acc = (tp + tn) / (tp + fp + tn + fn)
         pre = tp / (tp + fp)
         rec = tp / (tp + fn)
+        spec = tn / (tn + fp)
         f1core = 2 * pre * rec / (pre + rec)
 
         df['accuracy'] = acc.round(4)
         df["precision"] = pre.round(4)
         df["recall"] = rec.round(4)
+        df['specificity'] = spec.round(4)
         df["f1score"] = f1core.round(4)
 
         return df
@@ -322,11 +363,6 @@ class GianaEvaluator(DatasetEvaluator):
     def maybe_save_patch(self, im_name, pred_bbox, type, margin=0):
         # pred box XYXYX
         if self.save_patches:
-            if not os.path.exists(os.path.join(self.output_folder, "patches")):
-                os.makedirs(os.path.join(self.output_folder, "patches"), exist_ok=True)
-                os.makedirs(os.path.join(self.output_folder, "patches", "TP", "0"), exist_ok=True)
-                os.makedirs(os.path.join(self.output_folder, "patches", "TP", "1"), exist_ok=True)
-                os.makedirs(os.path.join(self.output_folder, "patches", "FP"), exist_ok=True)
 
             im_file = os.path.join(self.dataset_folder, "images", im_name)
             im = cv2.imread(im_file)
@@ -363,6 +399,24 @@ class GianaEvaluator(DatasetEvaluator):
 
         return miou, ious
 
+    def maybe_save_im(self, im_name, pred_boxes, pred_scores, type, th=0.5):
+        # pred box XYXYX
+        if type in self.save_ims:
+
+            im_file = os.path.join(self.dataset_folder, "images", im_name)
+            im = cv2.imread(im_file)
+            color = (255, 0, 0) if type == "TP" else (0, 0, 255)
+
+            for box, score in zip(pred_boxes, pred_scores):
+                if score >= th:
+                    x1, y1, x2, y2 = box.to("cpu").numpy()
+                    cv2.rectangle(im, (x1, y1), (x2, y2), color, 1)
+                    cv2.putText(im, "{:04f}".format(score), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+            if any(pred_scores >= th):
+                save = os.path.join(self.output_folder, "res_ims", type, im_name)
+                cv2.imwrite(save, im)
+
 
 def compute_iou(pred_box, gt_box):
     if pred_box == -1 or gt_box == -1:
@@ -389,6 +443,7 @@ def compute_iou(pred_box, gt_box):
     iou = intersection_area / float(bb1_area + bb2_area - intersection_area + 1e-5)
 
     return iou
+
 
 def offline_eval_from_coco_res(evaluator, coco_res):
     import numpy as np
@@ -446,4 +501,5 @@ if __name__ == '__main__':
     dataset_name = "CVC_VideoClinicDB_test"
     output_dir = "/home/devsodin/test"
     evaluator = GianaEvaluator(dataset_name, output_dir, metric_type='new')
-    offline_eval_from_coco_res(evaluator, gt.loadRes("/home/devsodin/PycharmProjects/detectron2/results/refine/faster_base_hd/inference/coco_instances_results.json"))
+    offline_eval_from_coco_res(evaluator, gt.loadRes(
+        "/home/devsodin/PycharmProjects/detectron2/results/refine/faster_base_hd/inference/coco_instances_results.json"))

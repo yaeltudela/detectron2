@@ -1,18 +1,21 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+import copy
 import inspect
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Union
 import torch
+from fvcore.nn import smooth_l1_loss
 from pytorch_metric_learning import losses, miners
 from torch import nn
 
 from detectron2.config import configurable
 from detectron2.layers import ShapeSpec
 from detectron2.modeling.roi_heads.maskiou_head import build_maskiou_head, mask_iou_loss, mask_iou_inference
-from detectron2.modeling.roi_heads.refinement_head import RefinementHead, RefinementHeadMetric, \
-    recompute_proto_centroids
-from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
+from detectron2.modeling.roi_heads.refinement_head import RefinementHead, WidthHeightAreaHead, ConvRegBoxHead
+from detectron2.modeling.roi_heads.mask_attention_head import MaskAttention
+from detectron2.modeling.roi_heads.dml_refine_head import RefinementHeadMetric, recompute_proto_centroids
+from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou, BoxMode
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.registry import Registry
 
@@ -22,9 +25,9 @@ from ..poolers import ROIPooler
 from ..proposal_generator.proposal_utils import add_ground_truth_to_proposals
 from ..sampling import subsample_labels
 from .box_head import build_box_head
-from .fast_rcnn import FastRCNNOutputLayers
+from .fast_rcnn import FastRCNNOutputLayers, SplittedFastRCNNOutputLayers
 from .keypoint_head import build_keypoint_head
-from .mask_head import build_mask_head
+from .mask_head import build_mask_head, SpatialAttentionModule
 
 ROI_HEADS_REGISTRY = Registry("ROI_HEADS")
 ROI_HEADS_REGISTRY.__doc__ = """
@@ -478,17 +481,6 @@ class Res5ROIHeads(ROIHeads):
 
 @ROI_HEADS_REGISTRY.register()
 class StandardROIHeads(ROIHeads):
-    """
-    It's "standard" in a sense that there is no ROI transform sharing
-    or feature sharing between tasks.
-    Each head independently processes the input features by each head's
-    own pooler and head.
-
-    This class is used by most models, such as FPN and C5.
-    To implement more models, you can subclass it and implement a different
-    :meth:`forward()` or a head.
-    """
-
     @configurable
     def __init__(
             self,
@@ -507,11 +499,21 @@ class StandardROIHeads(ROIHeads):
             maskiou_on: bool = False,
             maskiou_head:Optional[nn.Module] = None,
             maskiou_weight:float = 0.,
-            refine: bool = False,
             use_giou: bool = False,
             loss_weights: tuple = (1, 1, 1),
-            metric_head: bool = False,
-            embedding_size:int = 64,
+
+            refine_cls: bool = False,
+            refine_cls_type:str = "",
+            cls_head_bn_blocks: int = 1,
+            dml_embedding_size: int = 64,
+
+            mask_attention: bool = False,
+            split_cls_head: Optional[nn.Module] = None,
+            split_reg_head: Optional[nn.Module] = None,
+            wha_head_on=None,
+
+            roi_box_head_type = "",
+
             **kwargs
     ):
         """
@@ -555,37 +557,72 @@ class StandardROIHeads(ROIHeads):
 
         self.train_on_pred_boxes = train_on_pred_boxes
 
-        self.refine = refine
-        if self.refine:
-            self.refine_head = RefinementHead(self.num_classes)
-            print("Refine score head added")
-
-        self.metric_head = metric_head
-        if self.metric_head:
-            self.refine_head = RefinementHeadMetric(self.num_classes, embedding_size)
-            self.refine_miner = miners.TripletMarginMiner(margin=1, type_of_triplets='hard')
-            self.metric_loss = losses.TripletMarginLoss(margin=0.5)
-            load_centroids = True
-            self.proto_centroids = torch.load("centroids.pkl") if load_centroids else torch.zeros(
-                (self.num_classes + 1, embedding_size), device='cuda')
-            if self.proto_centroids.size(1) != embedding_size:
-                self.proto_centroids = torch.zeros((self.num_classes + 1, embedding_size), device='cuda')
-            print("DML head added")
-
         self.use_giou = use_giou
         print("GIOU / weights: {}".format(loss_weights) if use_giou else "")
-        self.l1_weight = loss_weights[0]
-        self.cross_entropy_weight = loss_weights[1]
+        self.smooth_l1_loss_weight = loss_weights[0]
+        self.cross_entropy_loss_weight = loss_weights[1]
         self.giou_weight = loss_weights[2] if self.use_giou else 0
 
+        self.wha_head_on = wha_head_on
+        if self.wha_head_on:
+            self.wha_head = WidthHeightAreaHead()
+
+        self.pooler_attention_on = False
+        if self.pooler_attention_on:
+            self.pooler_box_attention = SpatialAttentionModule()
+
+        self.refine_cls = refine_cls
+        self.refine_cls_type = refine_cls_type
+        if self.refine_cls:
+            if refine_cls_type == "conv":
+                self.refine_head = RefinementHead(self.num_classes, b_blocks=cls_head_bn_blocks)
+            elif refine_cls_type == 'dml':
+                self.dml_embedding_size = dml_embedding_size
+                self.refine_head = RefinementHeadMetric(self.num_classes, dml_embedding_size)
+                self.refine_miner = miners.TripletMarginMiner(margin=1, type_of_triplets='hard')
+                self.metric_loss = losses.TripletMarginLoss(margin=0.5)
+
+                load_centroids = True
+                self.proto_centroids = torch.load("centroids.pkl") if load_centroids else torch.zeros(
+                    (self.num_classes + 1, dml_embedding_size), device='cuda')
+                if self.proto_centroids.size(1) != dml_embedding_size:
+                    self.proto_centroids = torch.zeros((self.num_classes + 1, dml_embedding_size), device='cuda')
+                print("DML head added")
+
+            print("Refine score head added")
+
+        self.mask_attention = mask_attention
+        if self.mask_attention:
+            self.attention_layers = MaskAttention(self.num_classes)
+        self.split_reg_head = split_reg_head
+        self.split_cls_head = split_cls_head
+
+        self.roi_box_head_type = roi_box_head_type
+
+    """
+    It's "standard" in a sense that there is no ROI transform sharing
+    or feature sharing between tasks.
+    Each head independently processes the input features by each head's
+    own pooler and head.
+
+    This class is used by most models, such as FPN and C5.
+    To implement more models, you can subclass it and implement a different
+    :meth:`forward()` or a head.
+    """
 
     def reweight_losses(self, losses):
         if "loss_box_reg" in losses.keys():
-            losses.update({"loss_box_reg": losses["loss_box_reg"] * self.l1_weight})
+            losses.update({"loss_box_reg": losses["loss_box_reg"] * self.smooth_l1_loss_weight})
         if "loss_cls" in losses.keys():
-            losses.update({"loss_cls": losses["loss_cls"] * self.cross_entropy_weight})
+            losses.update({"loss_cls": losses["loss_cls"] * self.cross_entropy_loss_weight})
         if "loss_giou" in losses.keys():
             losses.update({"loss_giou": losses["loss_giou"] * self.giou_weight})
+        if "loss_split_reg" in losses.keys():
+            losses.update({"loss_split_reg": losses["loss_split_reg"] * self.smooth_l1_loss_weight})
+        if "loss_split_cls" in losses.keys():
+            losses.update({"loss_split_cls": losses["loss_split_cls"] * self.cross_entropy_loss_weight})
+        if "loss_split_giou" in losses.keys():
+            losses.update({"loss_split_giou": losses["loss_split_giou"] * self.giou_weight})
         return losses
 
 
@@ -606,12 +643,16 @@ class StandardROIHeads(ROIHeads):
             ret.update(cls._init_keypoint_head(cfg, input_shape))
         if inspect.ismethod(cls._init_maskiou_head):
             ret.update(cls._init_maskiou_head(cfg))
-        ret["refine"] = cfg.MODEL.ROI_HEADS.REFINE
+
         ret["use_giou"] = cfg.MODEL.ROI_BOX_HEAD.USE_GIOU
         ret["loss_weights"] = cfg.MODEL.ROI_HEADS.LOSS_WEIGHTS
-        ret['metric_head'] = cfg.MODEL.ROI_HEADS.DML_HEAD
-        ret['embedding_size'] = cfg.MODEL.ROI_HEADS.EMBEDDING_SIZE
         ret['maskiou_on'] = cfg.MODEL.MASKIOU_ON
+
+        ret["refine_cls"] = cfg.MODEL.ROI_HEADS.REFINE_CLS
+        ret['refine_cls_type'] = cfg.MODEL.ROI_HEADS.REFINE_METHOD
+        ret['dml_embedding_size'] = cfg.MODEL.ROI_HEADS.DML_EMBEDDING_SIZE
+        ret['wha_head_on'] = cfg.MODEL.ROI_HEADS.WHA_HEAD
+        ret['cls_head_bn_blocks'] = cfg.MODEL.ROI_HEADS.CONV_BN_BLOCKS
 
         return ret
 
@@ -623,6 +664,7 @@ class StandardROIHeads(ROIHeads):
         pooler_scales     = tuple(1.0 / input_shape[k].stride for k in in_features)
         sampling_ratio    = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
         pooler_type       = cfg.MODEL.ROI_BOX_HEAD.POOLER_TYPE
+        roi_box_head_type = cfg.MODEL.ROI_HEADS.BOX_HEAD_TYPE
         # fmt: on
 
         # If StandardROIHeads is applied on multiple feature maps (as in FPN),
@@ -638,19 +680,61 @@ class StandardROIHeads(ROIHeads):
             sampling_ratio=sampling_ratio,
             pooler_type=pooler_type,
         )
-        # Here we split "box head" and "box predictor", which is mainly due to historical reasons.
-        # They are used together so the "box predictor" layers should be part of the "box head".
-        # New subclasses of ROIHeads do not need "box predictor"s.
-        box_head = build_box_head(
-            cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
-        )
-        box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
-        return {
-            "box_in_features": in_features,
-            "box_pooler": box_pooler,
-            "box_head": box_head,
-            "box_predictor": box_predictor,
-        }
+
+        if roi_box_head_type == 'shared':
+            # Here we split "box head" and "box predictor", which is mainly due to historical reasons.
+            # They are used together so the "box predictor" layers should be part of the "box head".
+            # New subclasses of ROIHeads do not need "box predictor"s.
+            box_head = build_box_head(
+                cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
+            )
+            box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
+            return {
+                "box_in_features": in_features,
+                "box_pooler": box_pooler,
+                "box_head": box_head,
+                "box_predictor": box_predictor,
+                "roi_box_head_type": roi_box_head_type,
+            }
+        elif roi_box_head_type == 'double':
+            split_cls_head = build_box_head(
+                cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
+            )
+            split_reg_head = ConvRegBoxHead()
+            box_predictor = SplittedFastRCNNOutputLayers(cfg, split_cls_head.output_shape)
+            return {
+                "box_in_features": in_features,
+                "box_pooler": box_pooler,
+                "split_cls_head": split_cls_head,
+                "split_reg_head": split_reg_head,
+                "box_predictor": box_predictor,
+                "roi_box_head_type": roi_box_head_type,
+                "box_head": None, # for compatibility with ROIHeads constructor
+            }
+        elif roi_box_head_type == 'both':
+            box_head = build_box_head(
+                cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
+            )
+            box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
+
+            split_cls_head = build_box_head(
+                cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
+            )
+            split_reg_head = ConvRegBoxHead()
+            split_box_predictor = SplittedFastRCNNOutputLayers(cfg, split_cls_head.output_shape)
+
+            return {
+                "box_in_features": in_features,
+                "box_pooler": box_pooler,
+
+                "split_cls_head": split_cls_head,
+                "split_reg_head": split_reg_head,
+
+                "box_head": box_head,
+                "box_predictor": (box_predictor, split_box_predictor),
+
+                "roi_box_head_type": roi_box_head_type,
+            }
 
     @classmethod
     def _init_mask_head(cls, cfg, input_shape):
@@ -662,29 +746,34 @@ class StandardROIHeads(ROIHeads):
         pooler_scales     = tuple(1.0 / input_shape[k].stride for k in in_features)
         sampling_ratio    = cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO
         pooler_type       = cfg.MODEL.ROI_MASK_HEAD.POOLER_TYPE
+        mask_attention    = cfg.MODEL.ROI_MASK_HEAD.ATTENTION
         # fmt: on
 
         in_channels = [input_shape[f].channels for f in in_features][0]
 
-        ret = {"mask_in_features": in_features}
-        ret["mask_pooler"] = ROIPooler(
-            output_size=pooler_resolution,
-            scales=pooler_scales,
-            sampling_ratio=sampling_ratio,
-            pooler_type=pooler_type,
-        )
-        ret["mask_head"] = build_mask_head(
-            cfg, ShapeSpec(channels=in_channels, width=pooler_resolution, height=pooler_resolution)
-        )
+        ret = {
+            "mask_in_features": in_features,
+            "mask_pooler": ROIPooler(
+                output_size=pooler_resolution,
+                scales=pooler_scales,
+                sampling_ratio=sampling_ratio,
+                pooler_type=pooler_type,
+                ),
+            "mask_head": build_mask_head(
+                cfg, ShapeSpec(channels=in_channels, width=pooler_resolution, height=pooler_resolution)),
+            'mask_attention': mask_attention}
+
         return ret
 
     @classmethod
     def _init_maskiou_head(cls, cfg):
         if not cfg.MODEL.MASKIOU_ON:
             return {"maskiou_on": False}
-        ret = {"maskiou_on": True}
-        ret['maskiou_head'] = build_maskiou_head(cfg)
-        ret['maskiou_weight'] = cfg.MODEL.MASKIOU_LOSS_WEIGHT
+        ret = {
+            "maskiou_on": True,
+            'maskiou_head': build_maskiou_head(cfg),
+            'maskiou_weight': cfg.MODEL.MASKIOU_LOSS_WEIGHT
+        }
 
         return ret
 
@@ -702,16 +791,17 @@ class StandardROIHeads(ROIHeads):
 
         in_channels = [input_shape[f].channels for f in in_features][0]
 
-        ret = {"keypoint_in_features": in_features}
-        ret["keypoint_pooler"] = ROIPooler(
-            output_size=pooler_resolution,
-            scales=pooler_scales,
-            sampling_ratio=sampling_ratio,
-            pooler_type=pooler_type,
-        )
-        ret["keypoint_head"] = build_keypoint_head(
-            cfg, ShapeSpec(channels=in_channels, width=pooler_resolution, height=pooler_resolution)
-        )
+        ret = {
+            "keypoint_in_features": in_features,
+            "keypoint_pooler": ROIPooler(
+                output_size=pooler_resolution,
+                scales=pooler_scales,
+                sampling_ratio=sampling_ratio,
+                pooler_type=pooler_type,
+                ),
+            "keypoint_head": build_keypoint_head(
+                cfg, ShapeSpec(channels=in_channels, width=pooler_resolution, height=pooler_resolution))
+        }
         return ret
 
     def forward(
@@ -724,51 +814,73 @@ class StandardROIHeads(ROIHeads):
         """
         See :class:`ROIHeads.forward`.
         """
-        # from kornia.utils import tensor_to_image
-        # from matplotlib import pyplot as plt
-        # for image, proposal, target in zip(images, proposals, targets):
-        #     print(image)
-        #     print(proposal)
-        #     print(target)
-        #     plt.imshow(tensor_to_image(image)[::-1] * 255)
-        #     plt.show()
+
         del images
         if self.training:
             assert targets
             proposals = self.label_and_sample_proposals(proposals, targets)
         del targets
-
         if self.training:
-            losses, predictions = self._forward_box(features, proposals)
-            if self.refine:
-                losses.update(self._forward_refine_score_box(features, instances=proposals))
-            if self.metric_head:
-                losses.update({"metric_loss": self._forward_metric(features, proposals)})
+            losses, pooled_box_features = self._forward_box(features, proposals)
+
+            if self.wha_head_on:
+                losses.update(self._forward_wha_regressor(pooled_box_features, proposals))
+
+            if self.refine_cls:
+                if self.refine_cls_type == 'dml':
+                    losses.update(self._forward_metric(features, proposals))
+                if self.refine_cls_type == 'conv':
+                    losses.update(self._forward_refine_score_box(pooled_box_features, instances=proposals))
+
             # Usually the original proposals used by the box head are used by the mask, keypoint
             # heads. But when `self.train_on_pred_boxes is True`, proposals will contain boxes
             # predicted by the box head.
-            if self.maskiou_on:
-                (mask_loss, selected_mask, labels, maskiou_targets), mask_features = self._forward_mask(features, proposals)
-                losses.update(mask_loss)
-                losses.update(self._forward_maskiou(mask_features, proposals, selected_mask, labels, maskiou_targets))
-            else:
-                losses.update(self._forward_mask(features, proposals))
+
+            if self.mask_on:
+                if self.maskiou_on:
+                    if self.mask_attention:
+                        forward_res, mask_features, fg_idxs = self._forward_mask(features, proposals)
+                        (mask_loss, selected_mask, labels, maskiou_targets, out_mask) = forward_res
+                        fg_idxs = torch.cat(fg_idxs)
+                        split_head_losses = self._forward_attention(out_mask, pooled_box_features, fg_idxs, proposals)
+                        losses.update(split_head_losses)
+                    else:
+                        forward_res, mask_features = self._forward_mask(features, proposals)
+                        (mask_loss, selected_mask, labels, maskiou_targets) = forward_res
+                    maskiou_loss = self._forward_maskiou(mask_features, proposals, selected_mask, labels, maskiou_targets)
+                    losses.update(mask_loss)
+                    losses.update(maskiou_loss)
+                else:
+                    if self.mask_attention:
+                        (mask_loss, out_mask), fg_idxs = self._forward_mask(features, proposals)
+                        fg_idxs = torch.cat(fg_idxs)
+                        split_head_losses = self._forward_attention(out_mask, pooled_box_features, fg_idxs, proposals)
+                        losses.update(mask_loss)
+                        losses.update(split_head_losses)
+                    else:
+                        losses.update(self._forward_mask(features, proposals))
+
             losses.update(self._forward_keypoint(features, proposals))
             return proposals, losses
         else:
-            pred_instances = self._forward_box(features, proposals)
+            pred_instances, pooled_box_features, filter_indxs = self._forward_box(features, proposals)
             # During inference cascaded prediction is used: the mask and keypoints heads are only
             # applied to the top scoring box detections.
-            if self.refine:
-                pred_instances = self._forward_refine_score_box(features, instances=pred_instances)
-            if self.metric_head:
-                pred_instances = self._forward_metric(features, pred_instances)
+
+            # if self.wha_head_on:
+            #     (self._forward_wha_regressor(pooled_box_features, proposals))
+
+            if self.refine_cls:
+                if self.refine_cls_type == 'dml':
+                    pred_instances = self._forward_metric(features, pred_instances)
+                if self.refine_cls_type == 'conv':
+                    pred_instances = self._forward_refine_score_box(pooled_box_features[filter_indxs], instances=pred_instances)
 
             pred_instances = self.forward_with_given_boxes(features, pred_instances)
             return pred_instances, {}
 
     def forward_with_given_boxes(
-        self, features: Dict[str, torch.Tensor], instances: List[Instances]
+        self, features: Dict[str, torch.Tensor], instances: List[Instances], attention_features=None
     ) -> List[Instances]:
         """
         Use the given boxes in `instances` to produce other (non-box) per-ROI outputs.
@@ -795,8 +907,141 @@ class StandardROIHeads(ROIHeads):
             instances = self._forward_maskiou(mask_features, instances)
         else:
             instances = self._forward_mask(features, instances)
+
         instances = self._forward_keypoint(features, instances)
+
         return instances
+
+    def _forward_box(
+        self, features: Dict[str, torch.Tensor], proposals: List[Instances]
+    ) -> Union[Dict[str, torch.Tensor], List[Instances]]:
+        """
+        Forward logic of the box prediction branch. If `self.train_on_pred_boxes is True`,
+            the function puts predicted boxes in the `proposal_boxes` field of `proposals` argument.
+
+        Args:
+            features (dict[str, Tensor]): mapping from feature map names to tensor.
+                Same as in :meth:`ROIHeads.forward`.
+            proposals (list[Instances]): the per-image object proposals with
+                their matching ground truth.
+                Each has fields "proposal_boxes", and "objectness_logits",
+                "gt_classes", "gt_boxes".
+
+        Returns:
+            In training, a dict of losses.
+            In inference, a list of `Instances`, the predicted instances.
+        """
+
+        features = [features[f] for f in self.box_in_features]
+        pooled_box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
+
+        if self.pooler_attention_on:
+            pooled_box_features = self.pooler_box_attention(pooled_box_features)
+
+        if self.roi_box_head_type == "both":
+            shared_box_features = self.box_head(pooled_box_features)
+            shared_predictions = self.box_predictor(shared_box_features)
+            del shared_box_features
+            box_reg_features = self.split_reg_head(pooled_box_features)
+            box_cls_features = self.split_cls_head(pooled_box_features)
+            double_predictions = self.box_predictor(box_reg_features, box_cls_features)
+            del box_reg_features
+            del box_cls_features
+
+            if self.training:
+                losses = self.box_predictor[0].losses(shared_predictions, proposals)
+                losses.update(self.box_predictor[1].losses(double_predictions, proposals))
+                # proposals is modified in-place below, so losses must be computed first.
+                if self.train_on_pred_boxes:
+                    with torch.no_grad():
+                        shared_pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(
+                            shared_predictions, proposals
+                        )
+                        double_pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(
+                            double_predictions, proposals
+                        )
+                        pred_boxes = torch.cat([shared_pred_boxes, double_pred_boxes])
+
+                        for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
+                            proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
+                losses = self.reweight_losses(losses)
+
+                return losses, pooled_box_features
+            else:
+                pred_instances, _ = self.box_predictor[0].inference(shared_predictions, proposals)
+                double_pred_instances, _ = self.box_predictor[1].inference(double_predictions, proposals)
+                merged_pred_intances = []
+                for shared_inst, double_inst in zip(pred_instances, double_pred_instances):
+                    merged_pred_intances.append(Instances.cat([shared_inst, double_inst]))
+
+                return merged_pred_intances, pooled_box_features
+
+        else:
+            if self.roi_box_head_type == 'shared':
+                box_features = self.box_head(pooled_box_features)
+                predictions = self.box_predictor(box_features)
+                del box_features
+            else: # double
+                box_reg_features = self.split_reg_head(pooled_box_features)
+                box_cls_features = self.split_cls_head(pooled_box_features)
+                predictions = self.box_predictor(box_reg_features, box_cls_features)
+                del box_reg_features
+                del box_cls_features
+            if self.training:
+                losses = self.box_predictor.losses(predictions, proposals)
+                # proposals is modified in-place below, so losses must be computed first.
+                if self.train_on_pred_boxes:
+                    with torch.no_grad():
+                        pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(
+                            predictions, proposals
+                        )
+                        for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
+                            proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
+                losses = self.reweight_losses(losses)
+
+                return losses, pooled_box_features
+            else:
+                pred_instances, filter_indx = self.box_predictor.inference(predictions, proposals)
+                return pred_instances, pooled_box_features, filter_indx
+
+    def _forward_wha_regressor(self, features, instances):
+        if not self.wha_head_on:
+            return {} if self.training else instances
+
+        if self.training:
+            with torch.no_grad():
+                image_sizes = [p.image_size for p in instances]
+                gt_boxes = [p.gt_boxes for p in instances]
+                gt_areas = [p.gt_boxes.area() for p in instances]
+                norm_gt_centers = []
+                norm_gt_areas = []
+                for im_size, im_gt_boxes, im_gt_area in zip(image_sizes, gt_boxes, gt_areas):
+                    im_gt_tensor = im_gt_boxes.tensor
+                    norm_gt_centers.append(torch.stack(
+                        [im_gt_tensor[:, 0] / im_size[1], im_gt_tensor[:, 1] / im_size[0], im_gt_tensor[:, 2] / im_size[1],
+                         im_gt_tensor[:, 3] / im_size[0]], dim=1))
+                    norm_gt_areas.append(im_gt_area / (im_size[0] * im_size[1]))
+
+                norm_gt_centers = torch.cat(norm_gt_centers)
+                norm_gt_areas = torch.cat(norm_gt_areas)
+                norm_gts = torch.stack([(norm_gt_centers[:, 2] - norm_gt_centers[:, 0]) / 2,
+                                        (norm_gt_centers[:, 2] - norm_gt_centers[:, 0]) / 2, norm_gt_areas], dim=1)
+
+            wha_loss = self.wha_head(features, norm_gts)
+            return wha_loss
+        else:
+            return instances
+
+    def _forward_refine_score_box(self, pooled_box_features, instances=None):
+
+        if not self.refine_cls:
+            return {} if self.training else instances
+
+        if self.training:
+            targets = torch.cat([proposal.get('gt_classes') for proposal in instances])
+            return self.refine_head(pooled_box_features, targets)
+        else:
+            return self.refine_head(pooled_box_features, instances)
 
     def _forward_metric(self, features, instances):
         if not self.metric_head:
@@ -817,7 +1062,7 @@ class StandardROIHeads(ROIHeads):
 
             miner_output = self.refine_miner(embeddings, targets[mask])
             loss_dict = self.metric_loss(embeddings, targets[mask], miner_output)
-            return loss_dict / embeddings.size(0)
+            return {"loss_metric_cls": loss_dict / embeddings.size(0)}
         else:
             pred_boxes = [x.pred_boxes for x in instances]
             mask_features = self.box_pooler(features, pred_boxes)
@@ -858,71 +1103,6 @@ class StandardROIHeads(ROIHeads):
                 out_targets[(targets == cls).nonzero().view(-1, 1)[:min_elements]] = True
             return out_targets
 
-    def _forward_refine_score_box(self, features, instances=None):
-
-        if not self.refine:
-            return {} if self.training else instances
-
-        features = [features[f] for f in self.box_in_features]
-        if self.training:
-            # The loss is only defined on positive proposals.
-            # proposals, _ = select_foreground_proposals(instances, self.num_classes)
-            proposal_boxes = [x.proposal_boxes for x in instances]
-            mask_features = self.box_pooler(features, proposal_boxes)
-
-            targets = torch.cat([proposal.get('gt_classes') for proposal in instances])
-            # print(targets)
-            # print(targets.unique())
-            return self.refine_head(mask_features, targets)
-        else:
-            pred_boxes = [x.pred_boxes for x in instances]
-            mask_features = self.box_pooler(features, pred_boxes)
-
-            return self.refine_head(mask_features, instances)
-
-    def _forward_box(
-        self, features: Dict[str, torch.Tensor], proposals: List[Instances]
-    ) -> Union[Dict[str, torch.Tensor], List[Instances]]:
-        """
-        Forward logic of the box prediction branch. If `self.train_on_pred_boxes is True`,
-            the function puts predicted boxes in the `proposal_boxes` field of `proposals` argument.
-
-        Args:
-            features (dict[str, Tensor]): mapping from feature map names to tensor.
-                Same as in :meth:`ROIHeads.forward`.
-            proposals (list[Instances]): the per-image object proposals with
-                their matching ground truth.
-                Each has fields "proposal_boxes", and "objectness_logits",
-                "gt_classes", "gt_boxes".
-
-        Returns:
-            In training, a dict of losses.
-            In inference, a list of `Instances`, the predicted instances.
-        """
-        features = [features[f] for f in self.box_in_features]
-        box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
-        box_features = self.box_head(box_features)
-        predictions = self.box_predictor(box_features)
-        del box_features
-
-        if self.training:
-            losses = self.box_predictor.losses(predictions, proposals)
-            # proposals is modified in-place below, so losses must be computed first.
-            if self.train_on_pred_boxes:
-                with torch.no_grad():
-                    pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(
-                        predictions, proposals
-                    )
-                    for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
-                        proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
-
-            losses = self.reweight_losses(losses)
-
-            return losses, predictions
-        else:
-            pred_instances, _ = self.box_predictor.inference(predictions, proposals)
-            return pred_instances
-
     def _forward_mask(
         self, features: Dict[str, torch.Tensor], instances: List[Instances]
     ) -> Union[Dict[str, torch.Tensor], List[Instances]]:
@@ -947,11 +1127,18 @@ class StandardROIHeads(ROIHeads):
 
         if self.training:
             # The loss is only defined on positive proposals.
-            proposals, _ = select_foreground_proposals(instances, self.num_classes)
+            if self.mask_attention:
+                proposals, fg_idxs = select_foreground_proposals(instances, self.num_classes)
+            else:
+                proposals, _ = select_foreground_proposals(instances, self.num_classes)
             proposal_boxes = [x.proposal_boxes for x in proposals]
             mask_features = self.mask_pooler(features, proposal_boxes)
             if self.maskiou_on:
+                if self.mask_attention:
+                    return self.mask_head(mask_features, proposals), mask_features, fg_idxs
                 return self.mask_head(mask_features, proposals), mask_features
+            elif self.mask_attention:
+                return self.mask_head(mask_features, proposals), fg_idxs
             else:
                 return self.mask_head(mask_features, proposals)
         else:
@@ -990,6 +1177,60 @@ class StandardROIHeads(ROIHeads):
                 pred_maskiou = self.maskiou_head(features, torch.cat([i.pred_masks for i in instances], 0))
                 mask_iou_inference(instances, pred_maskiou)
             return instances
+
+    def _forward_attention(self, predicted_masks, pooled_box_features, fg_idxs, proposals, features=None):
+        ret_features = False
+        if self.training:
+            if False: # attention layers
+                filters = torch.zeros_like(pooled_box_features, dtype=pooled_box_features.dtype, device=pooled_box_features.device)
+                filters[fg_idxs] = self.attention_layers(predicted_masks, pooled_box_features[fg_idxs])
+                box_reg_features = pooled_box_features + filters
+                box_cls_features = pooled_box_features
+
+            elif False: # angostic mask attention
+                box_reg_features = pooled_box_features
+                box_cls_features = pooled_box_features
+                cls_mod_filters = torch.ones_like(pooled_box_features, dtype=pooled_box_features.dtype, device=pooled_box_features.device)
+                down_masks = torch.nn.functional.max_pool2d(predicted_masks, kernel_size=4)
+                cls_mod_filters[fg_idxs] = down_masks
+
+                box_cls_features = pooled_box_features * cls_mod_filters
+            else:
+                box_reg_features = pooled_box_features
+                box_cls_features = pooled_box_features
+
+            box_reg_features = self.split_reg_head(box_reg_features)
+            box_cls_features = self.split_cls_head(box_cls_features)
+            # box_cls_features = box_reg_features
+            predictions = self.box_predictor(box_reg_features, box_cls_features)
+            del box_reg_features
+            del box_cls_features
+
+            losses = self.box_predictor.losses(predictions, proposals)
+            # proposals is modified in-place below, so losses must be computed first.
+            if self.train_on_pred_boxes:
+                with torch.no_grad():
+                    pred_boxes = self.box_predictor.predict_boxes_for_gt_classes(
+                        predictions, proposals
+                    )
+                    for proposals_per_image, pred_boxes_per_image in zip(proposals, pred_boxes):
+                        proposals_per_image.proposal_boxes = Boxes(pred_boxes_per_image)
+            losses = self.reweight_losses(losses)
+
+            if ret_features:
+                return losses, pooled_box_features
+            return losses
+        else:
+            pooled_box_features = [pooled_box_features[f] for f in self.box_in_features]
+            pooled_box_features = self.box_pooler(pooled_box_features, [x.proposal_boxes for x in proposals])
+
+            box_reg_features = self.split_reg_head(pooled_box_features)
+            box_cls_features = self.split_cls_head(pooled_box_features)
+
+            predictions = self.box_predictor(box_reg_features, box_cls_features)
+            pred_instances, _ = self.box_predictor.inference(predictions, proposals)
+
+            return pred_instances, pooled_box_features
 
     def _forward_keypoint(
             self, features: Dict[str, torch.Tensor], instances: List[Instances]

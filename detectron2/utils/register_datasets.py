@@ -31,12 +31,12 @@ polyp_datasets = {
     "CVC_VideoClinicDB_train": {
         "split": "train.json",
         "categories": ["AD", "NAD"],
-        "evaluator_type": "coco"
+        "evaluator_type": "giana"
     },
     "CVC_VideoClinicDB_valid": {
         "split": "valid.json",
         "categories": ["AD", "NAD"],
-        "evaluator_type": "coco"
+        "evaluator_type": "giana"
     },
     "CVC_VideoClinicDB_test": {
         "split": "test.json",
@@ -46,26 +46,47 @@ polyp_datasets = {
     "CVC_ClinicDB": {
         "split": "clinic.json",
         "categories": ["AD", "NAD"],
-        "evaluator_type": "coco"
+        "evaluator_type": "giana"
     },
     "CVC_ColonDB": {
         "split": "colon.json",
         "categories": ["AD", "NAD"],
-        "evaluator_type": "coco"
+        "evaluator_type": "giana"
     },
     "CVC_HDClassif": {
         "split": "hdClassif.json",
         "categories": ["AD", "NAD"],
-        "evaluator_type": "coco"
+        "evaluator_type": "giana"
+    },
+    "ETIS_LaribPolypDB": {
+        "split": "etis.json",
+        "categories": ["Polyp","Polyp2"],
+        # "categories": ["AD", "NAD"],
+
+        "evaluator_type": "giana"
     }
 
 }
 
 
 def register_polyp_datasets(only_polyp=False):
-    polyp_cats = only_polyp_categories if only_polyp else polyp_categories
-
     for dataset_name, dataset_data in polyp_datasets.items():
+        polyp_cats = only_polyp_categories if only_polyp else polyp_categories
+        if "ETIS" in dataset_name:
+            polyp_cats = {
+                "Polyp": {
+                    'id': 1,
+                    'name': 'Polyp',
+                    'supercategory': 'polyp',
+                },
+                "Polyp2": {
+                    'id': 2,
+                    'name': 'Polyp2',
+                    'supercategory': 'polyp',
+                },
+
+            }
+
         root_dir = os.path.join("datasets", dataset_name, "images")
         if only_polyp:
             annot_file = os.path.join("datasets", dataset_name, "annotations", dataset_data['split'].replace(".json", "_polyp.json"))

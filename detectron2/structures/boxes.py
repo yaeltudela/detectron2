@@ -379,6 +379,34 @@ def generalized_box_iou(boxes1, boxes2):
 
     return iou - (area - union) / area
 
+def complete_box_iou(boxes1:Boxes, boxes2:Boxes):
+    """
+    Generalized IoU from https://giou.stanford.edu/
+    The boxes should be in [x0, y0, x1, y1] format
+    Returns a [N, M] pairwise matrix, where N = len(boxes1)
+    and M = len(boxes2)
+    """
+    # degenerate boxes gives inf / nan results
+    # so do an early check
+    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
+    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
+    #
+    # boxes1_areas = boxes1.area()
+    # boxes2_areas = boxes2.area()
+    #
+    # iou, union = box_iou(boxes1, boxes2)
+    #
+    # lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
+    # rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+    #
+    # wh = (rb - lt).clamp(min=0)  # [N,M,2]
+    # area = wh[:, :, 0] * wh[:, :, 1]
+    #
+    # v = (4 / np.pi ** 2) * np.arctan()
+    # alpha = v / ((1 - iou) + v)
+    #
+    # return iou + (p_square * ) + alpha * v
+
 
 def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     """

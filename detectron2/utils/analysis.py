@@ -144,7 +144,7 @@ def _wrapper_count_operators(
         def forward(self, image):
             # jit requires the input/output to be Tensors
             inputs = [{"image": image}]
-            outputs = self.model.forward(inputs)
+            outputs = self.model.forward(inputs, )
             # Only the subgraph that computes the returned tuple of tensor will be
             # counted. So we flatten everything we found to tuple of tensors.
             return _flatten_to_tuple(outputs)

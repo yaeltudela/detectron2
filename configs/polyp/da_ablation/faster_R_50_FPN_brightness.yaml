@@ -6,22 +6,11 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
 INPUT:
-#  CROP:
-#    ENABLED: True
-#    SIZE: (0.9, 0.9)
-#  HFLIP: True
-#  VFLIP: True
   COLOR_JITTER:
     ENABLED: True
     PROB: 0.5
-    BRIGHTNESS: (0.5,1.5)
-    SATURATION: (0.7,1.3)
-    CONTRAST: (0.5,1.5)
-#    HUE: (-.05,0.05)
+    BRIGHTNESS: (0.6,1.4)
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
@@ -34,6 +23,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/ablation/color"
+OUTPUT_DIR: "results/ablation/brightness"
 TEST:
   DETECTIONS_PER_IMAGE: 1

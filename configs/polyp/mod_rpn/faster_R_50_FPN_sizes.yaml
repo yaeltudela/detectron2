@@ -1,28 +1,18 @@
 _BASE_: "../Base-RCNN-FPN.yaml"
 DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train",  )
+  TRAIN: ("CVC_VideoClinicDB_train", )
   TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
+
 MODEL:
+  RPN:
+    IN_FEATURES: ["p2", "p3", "p4", "p5"]
+  ANCHOR_GENERATOR:
+    SIZES: [[32], [64], [128], [256]]  # One size for each in feature map
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
 INPUT:
-#  CROP:
-#    ENABLED: True
-#    SIZE: (0.9, 0.9)
-#  HFLIP: True
-#  VFLIP: True
-#  COLOR_JITTER:
-#    ENABLED: True
-#    PROB: 0.3
-#    BRIGHTNESS: (0.9,1.1)
-#    SATURATION: (0.9,1.1)
-#    CONTRAST: (0.9,1.1)
-#    HUE: (-.05,0.05)
-  MIN_SIZE_TRAIN: (288, 384,)
+  MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
   MAX_SIZE_TEST: 800
@@ -34,6 +24,7 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/ablation/mr"
+OUTPUT_DIR: "results/rpn/less_f_p2"
 TEST:
   DETECTIONS_PER_IMAGE: 1
+

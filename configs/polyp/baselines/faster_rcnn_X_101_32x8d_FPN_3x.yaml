@@ -1,16 +1,19 @@
-_BASE_: "../Modified-RPN.yaml"
+_BASE_: "../Base-RCNN-FPN.yaml"
 DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train",  )
+  TRAIN: ("CVC_VideoClinicDB_train", )
   TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
 MODEL:
   MASK_ON: False
+  PIXEL_STD: [57.375, 57.120, 58.395]
   RESNETS:
-    DEPTH: 50
+    STRIDE_IN_1X1: False  # this is a C2 model
+    NUM_GROUPS: 32
+    WIDTH_PER_GROUP: 8
+    DEPTH: 101
 INPUT:
-  MIN_SIZE_TRAIN: (288, )
+  MIN_SIZE_TRAIN: (288, 384, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
-  MAX_SIZE_TEST: 800
 SOLVER:
   IMS_PER_BATCH: 2
   BASE_LR: 0.0025
@@ -19,6 +22,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/modified_rpn/faster_video"
+OUTPUT_DIR: "results/baselines/faster_post_DC5"
 TEST:
-  DETECTIONS_PER_IMAGE: 1
+  DETECTIONS_PER_IMAGE: 3

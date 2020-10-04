@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/faster/50_video_base/config.yaml" MODEL.WEIGHTS "results/report/baselines/faster/50_video_base/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/faster/50_video_base/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/faster/101_video_base/config.yaml" MODEL.WEIGHTS "results/report/baselines/faster/101_video_base/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/faster/101_video_base/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/faster/50_DC5_video_base/config.yaml" MODEL.WEIGHTS "results/report/baselines/faster/50_DC5_video_base/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/faster/50_DC5_video_base/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/faster/X101_video_base/config.yaml" MODEL.WEIGHTS "results/report/baselines/faster/X101_video_base/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/faster/X101_video_base/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/mask/mask_r50/config.yaml" MODEL.WEIGHTS "results/report/baselines/mask/mask_r50/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/mask/mask_r50/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/mask/mask_r101/config.yaml" MODEL.WEIGHTS "results/report/baselines/mask/mask_r101/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/mask/mask_r101/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/mask/mask_DC5/config.yaml" MODEL.WEIGHTS "results/report/baselines/mask/mask_DC5/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/mask/mask_DC5/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+python tools/train_net.py --resume --eval-only --config-file "results/report/baselines/mask/mask_X101/config.yaml" MODEL.WEIGHTS "results/report/baselines/mask/mask_X101/model_final.pth" TEST.DETECTIONS_PER_IMAGE 3 OUTPUT_DIR "results/report/baselines/mask/mask_X101/" DATASETS.TEST "('CVC_VideoClinicDB_test', )"
+
+
+
+# python tools/train_net.py --config-file "configs/polyp/baselines/faster_R_50_FPN_base.yaml" MODEL.MASK_ON True MODEL.WEIGHTS "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_1x/137260431/model_final_a54504.pkl" OUTPUT_DIR "results/baseline/mask_r50"
+# python tools/train_net.py --config-file "configs/polyp/baselines/faster_R_50_FPN_base.yaml" MODEL.RESNETS.DEPTH 101 MODEL.MASK_ON True MODEL.WEIGHTS "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x/138205316/model_final_a3ec72.pkl" OUTPUT_DIR "results/baseline/mask_r101"
+#python tools/train_net.py --config-file "configs/polyp/baselines/faster_R_50_FPN_base_DC5.yaml" MODEL.MASK_ON True MODEL.WEIGHTS "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_DC5_3x/137849551/model_final_84107b.pkl" OUTPUT_DIR "results/baseline/mask_DC5"
+# python tools/train_net.py --config-file "configs/polyp/baselines/faster_rcnn_X_101_32x8d_FPN_3x.yaml" MODEL.MASK_ON True MODEL.WEIGHTS "detectron2://COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x/139653917/model_final_2d9806.pkl" OUTPUT_DIR "results/baseline/mask_X101"

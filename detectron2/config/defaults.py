@@ -294,10 +294,15 @@ _C.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 # train ROI heads.
 _C.MODEL.ROI_HEADS.PROPOSAL_APPEND_GT = True
 
-_C.MODEL.ROI_HEADS.REFINE = False # TODO experiments to test
-_C.MODEL.ROI_HEADS.DML_HEAD = False # TODO experiments to test
-_C.MODEL.ROI_HEADS.EMBEDDING_SIZE = 64
+_C.MODEL.ROI_HEADS.REFINE_CLS = False # TODO experiments to test
+_C.MODEL.ROI_HEADS.REFINE_METHOD = "conv" # TODO experiments to test
+_C.MODEL.ROI_HEADS.CONV_BN_BLOCKS = 1 # TODO experiments to test
+
+_C.MODEL.ROI_HEADS.DML_EMBEDDING_SIZE = 64
 _C.MODEL.ROI_HEADS.LOSS_WEIGHTS = (1, 1, 1)
+_C.MODEL.ROI_HEADS.BOX_HEAD_TYPE = "shared"
+_C.MODEL.ROI_HEADS.WHA_HEAD = False
+_C.MODEL.ROI_HEADS.WCE_LOSS = False
 
 # ---------------------------------------------------------------------------- #
 # Box Head
@@ -331,6 +336,8 @@ _C.MODEL.ROI_BOX_HEAD.CLS_AGNOSTIC_BBOX_REG = False
 _C.MODEL.ROI_BOX_HEAD.TRAIN_ON_PRED_BOXES = False
 
 _C.MODEL.ROI_BOX_HEAD.USE_GIOU = False
+_C.MODEL.ROI_BOX_HEAD.USE_CIOU = False
+
 
 # ---------------------------------------------------------------------------- #
 # Cascaded Box Head
@@ -363,6 +370,8 @@ _C.MODEL.ROI_MASK_HEAD.CLS_AGNOSTIC_MASK = False
 _C.MODEL.ROI_MASK_HEAD.POOLER_TYPE = "ROIAlignV2"
 
 _C.MODEL.ROI_MASK_HEAD.ATTENTION = False
+_C.MODEL.ROI_MASK_HEAD.SAM_ON = False
+_C.MODEL.ROI_MASK_HEAD.SAM_K = 3
 
 # ---------------------------------------------------------------------------- #
 # MaskIOU Head

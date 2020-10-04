@@ -1,13 +1,11 @@
-_BASE_: "../Base-RCNN-FPN.yaml"
+_BASE_: "../Base-RCNN-DilatedC5.yaml"
 DATASETS:
-  TRAIN: ("CVC_VideoClinicDB_train",  )
-  TEST: ("CVC_VideoClinicDB_test",)
+  TRAIN: ("CVC_VideoClinicDB_train", )
+  TEST: ("CVC_VideoClinicDB_valid", "CVC_VideoClinicDB_test",)
 MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-  ROI_HEADS:
-    REFINE_CLS: True
 INPUT:
   HFLIP: True
   VFLIP: True
@@ -16,7 +14,6 @@ INPUT:
   MIN_SIZE_TRAIN: (288, 384, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
-  MAX_SIZE_TEST: 800
 SOLVER:
   IMS_PER_BATCH: 2
   BASE_LR: 0.0025
@@ -25,6 +22,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/refine_cls/faster_post"
+OUTPUT_DIR: "results/baselines/faster_post_DC5"
 TEST:
-  DETECTIONS_PER_IMAGE: 1
+  DETECTIONS_PER_IMAGE: 3

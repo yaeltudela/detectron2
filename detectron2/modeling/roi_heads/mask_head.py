@@ -9,6 +9,7 @@ from torch.nn import functional as F
 
 from detectron2.config import configurable
 from detectron2.layers import Conv2d, ConvTranspose2d, ShapeSpec, cat, get_norm
+from detectron2.layers.wrappers import Max
 from detectron2.structures import Instances
 from detectron2.utils.events import get_event_storage
 from detectron2.utils.registry import Registry
@@ -73,8 +74,10 @@ def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on=False, vis_period=0):
         # A tensor of shape (N, M, M), N=#instances in the image; M=mask_side_len
         gt_masks.append(gt_masks_per_image)
 
-    gt_classes = cat(gt_classes, dim=0)
-
+    if gt_classes:
+        gt_classes = cat(gt_classes, dim=0)
+    else:
+        gt_classes = torch.tensor([], device=pred_mask_logits.device)
     if len(gt_masks) == 0:
         if maskiou_on:
             selected_index = torch.arange(pred_mask_logits.shape[0], device=pred_mask_logits.device)
@@ -182,6 +185,7 @@ def mask_rcnn_inference(pred_mask_logits, pred_instances):
         # Select masks corresponding to the predicted classes
         num_masks = pred_mask_logits.shape[0]
         class_pred = cat([i.pred_classes for i in pred_instances])
+
         indices = torch.arange(num_masks, device=class_pred.device)
         mask_probs_pred = pred_mask_logits[indices, class_pred][:, None].sigmoid()
     # mask_probs_pred.shape: (B, 1, Hmask, Wmask)
@@ -237,7 +241,10 @@ class BaseMaskRCNNHead(nn.Module):
         if self.training:
             if self.maskiou_on:
                 loss, selected_mask, labels, maskiou_targets = mask_rcnn_loss(x, instances, maskiou_on=self.maskiou_on, vis_period=self.vis_period)
-                return {"loss_mask": loss}, selected_mask, labels, maskiou_targets
+                if self.mask_attention:
+                    return {"loss_mask": loss}, selected_mask, labels, maskiou_targets, x
+                else:
+                    return {"loss_mask": loss}, selected_mask, labels, maskiou_targets
             elif self.mask_attention:
                 return {
                     "loss_mask": mask_rcnn_loss(x, instances, maskiou_on=self.maskiou_on, vis_period=self.vis_period)}, x
@@ -262,7 +269,7 @@ class MaskRCNNConvUpsampleHead(BaseMaskRCNNHead):
     """
 
     @configurable
-    def __init__(self, input_shape: ShapeSpec, *, num_classes, conv_dims, conv_norm="", **kwargs):
+    def __init__(self, input_shape: ShapeSpec, *, num_classes, conv_dims, conv_norm="", sam_on=False, sam_k=3, **kwargs):
         """
         NOTE: this interface is experimental.
 
@@ -295,6 +302,11 @@ class MaskRCNNConvUpsampleHead(BaseMaskRCNNHead):
             self.conv_norm_relus.append(conv)
             cur_channels = conv_dim
 
+        self.sam_on = sam_on
+
+        if self.sam_on:
+            self.sam = SpatialAttentionModule(kernel_size=3)
+
         self.deconv = ConvTranspose2d(
             cur_channels, conv_dims[-1], kernel_size=2, stride=2, padding=0
         )
@@ -323,13 +335,38 @@ class MaskRCNNConvUpsampleHead(BaseMaskRCNNHead):
             ret["num_classes"] = 1
         else:
             ret["num_classes"] = cfg.MODEL.ROI_HEADS.NUM_CLASSES
+        ret['sam_on'] = cfg.MODEL.ROI_MASK_HEAD.SAM_ON
+        ret['sam_k'] = cfg.MODEL.ROI_MASK_HEAD.SAM_K
         return ret
 
     def layers(self, x):
         for layer in self.conv_norm_relus:
             x = layer(x)
+
+        if self.sam_on:
+            x = self.sam(x)
+
         x = F.relu(self.deconv(x))
         return self.predictor(x)
+
+
+class SpatialAttentionModule(nn.Module):
+    def __init__(self, kernel_size=3):
+        super(SpatialAttentionModule, self).__init__()
+
+        assert kernel_size in (3, 5, 7), 'kernel size must be 3 or 7'
+        padding = 3 if kernel_size == 7 else (1 if kernel_size == 3 else 2)
+
+        self.conv = Conv2d(in_channels=2, out_channels=1, kernel_size=kernel_size, padding=padding, bias=False)
+        weight_init.c2_msra_fill(self.conv)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out = Max(x)
+        scale = torch.cat([avg_out, max_out], dim=1)
+        scale = self.conv(scale)
+        return x * self.sigmoid(scale)
 
 
 def build_mask_head(cfg, input_shape):

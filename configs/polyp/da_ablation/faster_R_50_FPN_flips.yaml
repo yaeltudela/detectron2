@@ -6,14 +6,9 @@ MODEL:
   MASK_ON: False
   RESNETS:
     DEPTH: 50
-#  PROPOSAL_GENERATOR:
-#    MIN_SIZE: 10
-#    MAX_SIZE: 170
 INPUT:
-
-  HFLIP: True
   VFLIP: True
-
+  HFLIP: True
   MIN_SIZE_TRAIN: (288, )
   MAX_SIZE_TRAIN: 800
   MIN_SIZE_TEST: 288
@@ -26,6 +21,6 @@ SOLVER:
   MAX_ITER: 24575 # 5 epocas
   LR_SCHEDULER_NAME: "WarmupCosineLR"
 
-OUTPUT_DIR: "results/ablation/flips"
+OUTPUT_DIR: "results/ablation/hvflips"
 TEST:
   DETECTIONS_PER_IMAGE: 1
