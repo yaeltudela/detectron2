@@ -94,7 +94,7 @@ class DatasetMapper:
                     np.random.choice(dataset_dict["annotations"]),
                 )
                 image = crop_tfm.apply_image(image)
-            image, transforms = T.apply_transform_gens(self.tfm_gens, image)
+            image, transforms = T.apply_transform_gens(self.tfm_gens, image.astype(float))
             if self.crop_gen:
                 transforms = crop_tfm + transforms
 

@@ -89,7 +89,8 @@ def process_videos(df, out="vids"):
             for i, row in rows.iterrows():
                 loc_response = row.localized
 
-                color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
+                # color = get_color_by_score(row.score) if loc_response in ["TP", "FP"] else None
+                color = (0, 0, 255) if loc_response in ["TP", "FP"] and row.score > 0.5 else None
                 if color is not None:
                     box = row.pred_box
                     box = [int(float(x)) for x in box.strip("[]").split(",")]
@@ -145,20 +146,19 @@ def from_ims_to_vid(images_path, output_path, n_seq=18):
 
 
 if __name__ == '__main__':
-    input_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/images/"
-    output_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/vids/"
+    # input_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/images/"
+    # output_dir = "results/results/all_exps/final/m101_concat_sam_2x/inference/vids/"
 
-    from_ims_to_vid(input_dir, output_dir)
-
-    dsfsadf
-
-    model = "baselines/faster_base_DC5"
-    input_file = "../results/{}/inference/giana/results.csv".format(model)
-    images_path = "../datasets/CVC_VideoClinicDB_test/images/"
+    # from_ims_to_vid(input_dir, output_dir)
+    #
+    # dsfsadf
+    #
+    input_file = "/media/devsodin/WORK1/TFM/results/all_exps/final/f101_losses_concat_double_2x/inference/giana_CVC_VideoClinicDB_test/results.csv"
+    images_path = "/media/devsodin/WORK1/datasets/CVC_VideoClinicDB_test/images/"
     df = pd.read_csv(input_file)
-
-    model2 = "refine_cls/faster_post"
-    input_b = input_file.replace(model, model2)
+    #
+    # model2 = "refine_cls/faster_post"
+    # input_b = input_file.replace(model, model2)
     # blue model  a; green model b
     # compare_models(input_file, input_b, images_path)
     #
