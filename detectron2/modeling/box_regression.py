@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 import math
 from typing import Tuple
 import torch
@@ -80,6 +80,7 @@ class Box2BoxTransform(object):
                 box transformations for the single box boxes[i].
             boxes (Tensor): boxes to transform, of shape (N, 4)
         """
+        deltas = deltas.float()  # ensure fp32 for decoding precision
         boxes = boxes.to(deltas.dtype)
 
         widths = boxes[:, 2] - boxes[:, 0]
@@ -183,7 +184,7 @@ class Box2BoxTransformRotated(object):
                 deltas[i] represents box transformation for the single box boxes[i].
             boxes (Tensor): boxes to transform, of shape (N, 5)
         """
-        assert deltas.shape[1] == 5 and boxes.shape[1] == 5
+        assert deltas.shape[1] % 5 == 0 and boxes.shape[1] == 5
 
         boxes = boxes.to(deltas.dtype).unsqueeze(2)
 

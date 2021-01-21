@@ -1,16 +1,39 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-# File: transform.py
-from builtins import property, print
+# Copyright (c) Facebook, Inc. and its affiliates.
 
-import cv2
+"""
+See "Data Augmentation" tutorial for an overview of the system:
+https://detectron2.readthedocs.io/tutorials/augmentation.html
+"""
+
 import numpy as np
 import torch
 import torch.nn.functional as F
+from fvcore.transforms.transform import (
+    CropTransform,
+    HFlipTransform,
+    NoOpTransform,
+    Transform,
+    TransformList,
+)
 from PIL import Image
-from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform, CropTransform, TransformList
 
-__all__ = ["ExtentTransform", "ResizeTransform", "GaussianBlurTransform", "RandomHueTransform", "RotationTransform"]
+try:
+    import cv2  # noqa
+except ImportError:
+    # OpenCV is an optional dependency at the moment
+    pass
+
+__all__ = [
+    "ExtentTransform",
+    "ResizeTransform",
+    "RotationTransform",
+    "ColorTransform",
+    "PILColorTransform",
+    "GaussianBlurTrasnform",
+    "RandomHueTransform",
+    "RotationTransform"
+]
 
 
 class ExtentTransform(Transform):
@@ -36,14 +59,21 @@ class ExtentTransform(Transform):
 
     def apply_image(self, img, interp=None):
         h, w = self.output_size
-        ret = Image.fromarray(img).transform(
+        if len(img.shape) > 2 and img.shape[2] == 1:
+            pil_image = Image.fromarray(img[:, :, 0], mode="L")
+        else:
+            pil_image = Image.fromarray(img)
+        pil_image = pil_image.transform(
             size=(w, h),
             method=Image.EXTENT,
             data=self.src_rect,
             resample=interp if interp else self.interp,
             fill=self.fill,
         )
-        return np.asarray(ret)
+        ret = np.asarray(pil_image)
+        if len(img.shape) > 2 and img.shape[2] == 1:
+            ret = np.expand_dims(ret, -1)
+        return ret
 
     def apply_coords(self, coords):
         # Transform image center from source coordinates into output coordinates
@@ -82,40 +112,42 @@ class ResizeTransform(Transform):
             interp = Image.BILINEAR
         self._set_attributes(locals())
 
-    # def apply_image(self, img, interp=None):
-    #     assert img.shape[:2] == (self.h, self.w)
-    #     assert len(img.shape) <= 4
-    #
-    #     if img.dtype == np.uint8:
-    #         pil_image = Image.fromarray(img)
-    #         interp_method = interp if interp is not None else self.interp
-    #         pil_image = pil_image.resize((self.new_w, self.new_h), interp_method)
-    #         ret = np.asarray(pil_image)
-    #     else:
-    #         # PIL only supports uint8
-    #         img = torch.from_numpy(img)
-    #         shape = list(img.shape)
-    #         shape_4d = shape[:2] + [1] * (4 - len(shape)) + shape[2:]
-    #         img = img.view(shape_4d).permute(2, 3, 0, 1)  # hw(c) -> nchw
-    #         _PIL_RESIZE_TO_INTERPOLATE_MODE = {Image.BILINEAR: "bilinear", Image.BICUBIC: "bicubic"}
-    #         mode = _PIL_RESIZE_TO_INTERPOLATE_MODE[self.interp]
-    #         img = F.interpolate(img, (self.new_h, self.new_w), mode=mode, align_corners=False)
-    #         shape[:2] = (self.new_h, self.new_w)
-    #         ret = img.permute(2, 3, 0, 1).view(shape).numpy()  # nchw -> hw(c)
-    #
-    #     return ret
-
     def apply_image(self, img, interp=None):
-        img = torch.from_numpy(img.copy())
-        shape = list(img.shape)
-        shape_4d = shape[:2] + [1] * (4 - len(shape)) + shape[2:]
-        img = img.view(shape_4d).permute(2, 3, 0, 1)  # hw(c) -> nchw
-        img = F.interpolate(img, (self.new_h, self.new_w), mode="bilinear", align_corners=False)
-        shape[:2] = (self.new_h, self.new_w)
-        ret = img.permute(2, 3, 0, 1).view(shape).numpy()  # nchw -> hw(c)
+        assert img.shape[:2] == (self.h, self.w)
+        assert len(img.shape) <= 4
+        interp_method = interp if interp is not None else self.interp
+
+        if img.dtype == np.uint8:
+            if len(img.shape) > 2 and img.shape[2] == 1:
+                pil_image = Image.fromarray(img[:, :, 0], mode="L")
+            else:
+                pil_image = Image.fromarray(img)
+            pil_image = pil_image.resize((self.new_w, self.new_h), interp_method)
+            ret = np.asarray(pil_image)
+            if len(img.shape) > 2 and img.shape[2] == 1:
+                ret = np.expand_dims(ret, -1)
+        else:
+            # PIL only supports uint8
+            if any(x < 0 for x in img.strides):
+                img = np.ascontiguousarray(img)
+            img = torch.from_numpy(img)
+            shape = list(img.shape)
+            shape_4d = shape[:2] + [1] * (4 - len(shape)) + shape[2:]
+            img = img.view(shape_4d).permute(2, 3, 0, 1)  # hw(c) -> nchw
+            _PIL_RESIZE_TO_INTERPOLATE_MODE = {
+                Image.NEAREST: "nearest",
+                Image.BILINEAR: "bilinear",
+                Image.BICUBIC: "bicubic",
+            }
+            mode = _PIL_RESIZE_TO_INTERPOLATE_MODE[interp_method]
+            align_corners = None if mode == "nearest" else False
+            img = F.interpolate(
+                img, (self.new_h, self.new_w), mode=mode, align_corners=align_corners
+            )
+            shape[:2] = (self.new_h, self.new_w)
+            ret = img.permute(2, 3, 0, 1).view(shape).numpy()  # nchw -> hw(c)
 
         return ret
-
 
     def apply_coords(self, coords):
         coords[:, 0] = coords[:, 0] * (self.new_w * 1.0 / self.w)
@@ -253,6 +285,63 @@ class RotationTransform(Transform):
         return TransformList([rotation, crop])
 
 
+class ColorTransform(Transform):
+    """
+    Generic wrapper for any photometric transforms.
+    These transformations should only affect the color space and
+        not the coordinate space of the image (e.g. annotation
+        coordinates such as bounding boxes should not be changed)
+    """
+
+    def __init__(self, op):
+        """
+        Args:
+            op (Callable): operation to be applied to the image,
+                which takes in an ndarray and returns an ndarray.
+        """
+        if not callable(op):
+            raise ValueError("op parameter should be callable")
+        super().__init__()
+        self._set_attributes(locals())
+
+    def apply_image(self, img):
+        return self.op(img)
+
+    def apply_coords(self, coords):
+        return coords
+
+    def inverse(self):
+        return NoOpTransform()
+
+    def apply_segmentation(self, segmentation):
+        return segmentation
+
+
+class PILColorTransform(ColorTransform):
+    """
+    Generic wrapper for PIL Photometric image transforms,
+        which affect the color space and not the coordinate
+        space of the image
+    """
+
+    def __init__(self, op):
+        """
+        Args:
+            op (Callable): operation to be applied to the image,
+                which takes in a PIL Image and returns a transformed
+                PIL Image.
+                For reference on possible operations see:
+                - https://pillow.readthedocs.io/en/stable/
+        """
+        if not callable(op):
+            raise ValueError("op parameter should be callable")
+        super().__init__(op)
+
+    def apply_image(self, img):
+        img = Image.fromarray(img)
+        return np.asarray(super().apply_image(img))
+
+
 def HFlip_rotated_box(transform, rotated_boxes):
     """
     Apply the horizontal flip transform on rotated boxes.
@@ -294,5 +383,7 @@ def Resize_rotated_box(transform, rotated_boxes):
 
 
 HFlipTransform.register_type("rotated_box", HFlip_rotated_box)
-NoOpTransform.register_type("rotated_box", lambda t, x: x)
 ResizeTransform.register_type("rotated_box", Resize_rotated_box)
+
+# not necessary any more with latest fvcore
+NoOpTransform.register_type("rotated_box", lambda t, x: x)

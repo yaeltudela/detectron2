@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 
 """
 TridentNet Training Script.
@@ -12,11 +12,9 @@ import os
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, launch
-from detectron2.evaluation import COCOEvaluator, DatasetEvaluators, GianaEvaluator
+from detectron2.evaluation import COCOEvaluator
 
 from tridentnet import add_tridentnet_config
-
-from detectron2.utils.register_datasets import register_polyp_datasets
 
 
 class Trainer(DefaultTrainer):
@@ -24,10 +22,7 @@ class Trainer(DefaultTrainer):
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
         if output_folder is None:
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
-        evaluators = []
-        evaluators.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
-        evaluators.append(GianaEvaluator(dataset_name, output_folder, metric_type=cfg.TEST.GIANA_METRICS))
-        return DatasetEvaluators(evaluators)
+        return COCOEvaluator(dataset_name, output_dir=output_folder)
 
 
 def setup(args):
@@ -60,7 +55,6 @@ def main(args):
 
 
 if __name__ == "__main__":
-    register_polyp_datasets()
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
     launch(

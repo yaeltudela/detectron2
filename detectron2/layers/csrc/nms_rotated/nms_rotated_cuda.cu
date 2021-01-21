@@ -1,9 +1,15 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+// Copyright (c) Facebook, Inc. and its affiliates.
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/CUDAApplyUtils.cuh>
+#ifdef WITH_CUDA
 #include "../box_iou_rotated/box_iou_rotated_utils.h"
+#endif
+// TODO avoid this when pytorch supports "same directory" hipification
+#ifdef WITH_HIP
+#include "box_iou_rotated/box_iou_rotated_utils.h"
+#endif
 
 using namespace detectron2;
 

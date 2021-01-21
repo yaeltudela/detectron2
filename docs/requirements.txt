@@ -2,16 +2,16 @@ termcolor
 numpy
 tqdm
 docutils==0.16
-Sphinx==3.0.0
+# https://github.com/sphinx-doc/sphinx/commit/7acd3ada3f38076af7b2b5c9f3b60bb9c2587a3d
+git+git://github.com/sphinx-doc/sphinx.git@7acd3ada3f38076af7b2b5c9f3b60bb9c2587a3d
 recommonmark==0.6.0
 sphinx_rtd_theme
-mock
 matplotlib
 termcolor
 yacs
 tabulate
 cloudpickle
-Pillow==6.2.2
+Pillow
 future
 requests
 six

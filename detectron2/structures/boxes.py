@@ -1,12 +1,22 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 import math
 import numpy as np
 from enum import IntEnum, unique
-from typing import Iterator, List, Tuple, Union
+from typing import List, Tuple, Union
 import torch
-from torchvision.ops.boxes import box_area
+from torch import device
+
+from detectron2.utils.env import TORCH_VERSION
 
 _RawBoxType = Union[List[float], Tuple[float, ...], torch.Tensor, np.ndarray]
+
+
+if TORCH_VERSION < (1, 8):
+    _maybe_jit_unused = torch.jit.unused
+else:
+
+    def _maybe_jit_unused(x):
+        return x
 
 
 @unique
@@ -142,8 +152,6 @@ class Boxes:
         tensor (torch.Tensor): float matrix of Nx4. Each row is (x1, y1, x2, y2).
     """
 
-    BoxSizeType = Union[List[int], Tuple[int, int]]
-
     def __init__(self, tensor: torch.Tensor):
         """
         Args:
@@ -154,7 +162,7 @@ class Boxes:
         if tensor.numel() == 0:
             # Use reshape, so we don't end up creating a new tensor that does not depend on
             # the inputs (and consequently confuses jit)
-            tensor = tensor.reshape((0, 4)).to(dtype=torch.float32, device=device)
+            tensor = tensor.reshape((-1, 4)).to(dtype=torch.float32, device=device)
         assert tensor.dim() == 2 and tensor.size(-1) == 4, tensor.size()
 
         self.tensor = tensor
@@ -168,8 +176,10 @@ class Boxes:
         """
         return Boxes(self.tensor.clone())
 
-    def to(self, device: str) -> "Boxes":
-        return Boxes(self.tensor.to(device))
+    @_maybe_jit_unused
+    def to(self, device: torch.device):
+        # Boxes are assumed float32 and does not support to(dtype)
+        return Boxes(self.tensor.to(device=device))
 
     def area(self) -> torch.Tensor:
         """
@@ -182,7 +192,7 @@ class Boxes:
         area = (box[:, 2] - box[:, 0]) * (box[:, 3] - box[:, 1])
         return area
 
-    def clip(self, box_size: BoxSizeType) -> None:
+    def clip(self, box_size: Tuple[int, int]) -> None:
         """
         Clip (in place) the boxes by limiting x coordinates to the range [0, width]
         and y coordinates to the range [0, height].
@@ -197,7 +207,7 @@ class Boxes:
         self.tensor[:, 2].clamp_(min=0, max=w)
         self.tensor[:, 3].clamp_(min=0, max=h)
 
-    def nonempty(self, threshold: int = 0, upper_threshold: float = np.inf) -> torch.Tensor:
+    def nonempty(self, threshold: float = 0.0) -> torch.Tensor:
         """
         Find boxes that are non-empty.
         A box is considered empty, if either of its side is no larger than threshold.
@@ -210,12 +220,14 @@ class Boxes:
         box = self.tensor
         widths = box[:, 2] - box[:, 0]
         heights = box[:, 3] - box[:, 1]
-        keep = (widths > threshold) & (heights > threshold) & (widths < upper_threshold) & (heights < upper_threshold)
-
+        keep = (widths > threshold) & (heights > threshold)
         return keep
 
-    def __getitem__(self, item: Union[int, slice, torch.BoolTensor]) -> "Boxes":
+    def __getitem__(self, item) -> "Boxes":
         """
+        Args:
+            item: int, slice, or a BoolTensor
+
         Returns:
             Boxes: Create a new :class:`Boxes` by indexing.
 
@@ -241,7 +253,7 @@ class Boxes:
     def __repr__(self) -> str:
         return "Boxes(" + str(self.tensor) + ")"
 
-    def inside_box(self, box_size: BoxSizeType, boundary_threshold: int = 0) -> torch.Tensor:
+    def inside_box(self, box_size: Tuple[int, int], boundary_threshold: int = 0) -> torch.Tensor:
         """
         Args:
             box_size (height, width): Size of the reference box.
@@ -275,6 +287,7 @@ class Boxes:
         self.tensor[:, 1::2] *= scale_y
 
     @classmethod
+    @_maybe_jit_unused
     def cat(cls, boxes_list: List["Boxes"]) -> "Boxes":
         """
         Concatenates a list of Boxes into a single Boxes
@@ -288,21 +301,46 @@ class Boxes:
         assert isinstance(boxes_list, (list, tuple))
         if len(boxes_list) == 0:
             return cls(torch.empty(0))
-        assert all(isinstance(box, Boxes) for box in boxes_list)
+        assert all([isinstance(box, Boxes) for box in boxes_list])
 
         # use torch.cat (v.s. layers.cat) so the returned boxes never share storage with input
         cat_boxes = cls(torch.cat([b.tensor for b in boxes_list], dim=0))
         return cat_boxes
 
     @property
-    def device(self) -> torch.device:
+    def device(self) -> device:
         return self.tensor.device
 
-    def __iter__(self) -> Iterator[torch.Tensor]:
+    # type "Iterator[torch.Tensor]", yield, and iter() not supported by torchscript
+    # https://github.com/pytorch/pytorch/issues/18627
+    @torch.jit.unused
+    def __iter__(self):
         """
         Yield a box as a Tensor of shape (4,) at a time.
         """
         yield from self.tensor
+
+
+def pairwise_intersection(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
+    """
+    Given two lists of boxes of size N and M,
+    compute the intersection area between __all__ N x M pairs of boxes.
+    The box order must be (xmin, ymin, xmax, ymax)
+
+    Args:
+        boxes1,boxes2 (Boxes): two `Boxes`. Contains N & M boxes, respectively.
+
+    Returns:
+        Tensor: intersection, sized [N,M].
+    """
+    boxes1, boxes2 = boxes1.tensor, boxes2.tensor
+    width_height = torch.min(boxes1[:, None, 2:], boxes2[:, 2:]) - torch.max(
+        boxes1[:, None, :2], boxes2[:, :2]
+    )  # [N,M,2]
+
+    width_height.clamp_(min=0)  # [N,M,2]
+    intersection = width_height.prod(dim=2)  # [N,M]
+    return intersection
 
 
 # implementation from https://github.com/kuangliu/torchcv/blob/master/torchcv/utils/box.py
@@ -313,25 +351,15 @@ def pairwise_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     compute the IoU (intersection over union)
     between __all__ N x M pairs of boxes.
     The box order must be (xmin, ymin, xmax, ymax).
-
     Args:
         boxes1,boxes2 (Boxes): two `Boxes`. Contains N & M boxes, respectively.
 
     Returns:
         Tensor: IoU, sized [N,M].
     """
-    area1 = boxes1.area()
-    area2 = boxes2.area()
-
-    boxes1, boxes2 = boxes1.tensor, boxes2.tensor
-
-    width_height = torch.min(boxes1[:, None, 2:], boxes2[:, 2:]) - torch.max(
-        boxes1[:, None, :2], boxes2[:, :2]
-    )  # [N,M,2]
-
-    width_height.clamp_(min=0)  # [N,M,2]
-    inter = width_height.prod(dim=2)  # [N,M]
-    del width_height
+    area1 = boxes1.area()  # [N]
+    area2 = boxes2.area()  # [M]
+    inter = pairwise_intersection(boxes1, boxes2)
 
     # handle empty boxes
     iou = torch.where(
@@ -342,70 +370,24 @@ def pairwise_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     return iou
 
 
-def box_iou(boxes1, boxes2):
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
-
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
-
-    wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
-
-    union = area1[:, None] + area2 - inter
-
-    iou = inter / union
-    return iou, union
-
-
-def generalized_box_iou(boxes1, boxes2):
+def pairwise_ioa(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     """
-    Generalized IoU from https://giou.stanford.edu/
-    The boxes should be in [x0, y0, x1, y1] format
-    Returns a [N, M] pairwise matrix, where N = len(boxes1)
-    and M = len(boxes2)
+    Similar to pariwise_iou but compute the IoA (intersection over boxes2 area).
+
+    Args:
+        boxes1,boxes2 (Boxes): two `Boxes`. Contains N & M boxes, respectively.
+
+    Returns:
+        Tensor: IoA, sized [N,M].
     """
-    # degenerate boxes gives inf / nan results
-    # so do an early check
-    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
-    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
-    iou, union = box_iou(boxes1, boxes2)
+    area2 = boxes2.area()  # [M]
+    inter = pairwise_intersection(boxes1, boxes2)
 
-    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
-
-    wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    area = wh[:, :, 0] * wh[:, :, 1]
-
-    return iou - (area - union) / area
-
-def complete_box_iou(boxes1:Boxes, boxes2:Boxes):
-    """
-    Generalized IoU from https://giou.stanford.edu/
-    The boxes should be in [x0, y0, x1, y1] format
-    Returns a [N, M] pairwise matrix, where N = len(boxes1)
-    and M = len(boxes2)
-    """
-    # degenerate boxes gives inf / nan results
-    # so do an early check
-    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
-    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
-    #
-    # boxes1_areas = boxes1.area()
-    # boxes2_areas = boxes2.area()
-    #
-    # iou, union = box_iou(boxes1, boxes2)
-    #
-    # lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    # rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
-    #
-    # wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    # area = wh[:, :, 0] * wh[:, :, 1]
-    #
-    # v = (4 / np.pi ** 2) * np.arctan()
-    # alpha = v / ((1 - iou) + v)
-    #
-    # return iou + (p_square * ) + alpha * v
+    # handle empty boxes
+    ioa = torch.where(
+        inter > 0, inter / area2, torch.zeros(1, dtype=inter.dtype, device=inter.device)
+    )
+    return ioa
 
 
 def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
@@ -413,11 +395,12 @@ def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     Compute pairwise intersection over union (IOU) of two sets of matched
     boxes. The box order must be (xmin, ymin, xmax, ymax).
     Similar to boxlist_iou, but computes only diagonal elements of the matrix
-    Arguments:
+
+    Args:
         boxes1: (Boxes) bounding boxes, sized [N,4].
         boxes2: (Boxes) bounding boxes, sized [N,4].
     Returns:
-        (tensor) iou, sized [N].
+        Tensor: iou, sized [N].
     """
     assert len(boxes1) == len(
         boxes2

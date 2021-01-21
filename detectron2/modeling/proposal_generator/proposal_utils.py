@@ -1,5 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-import itertools
+# Copyright (c) Facebook, Inc. and its affiliates.
 import logging
 import math
 from typing import List, Tuple
@@ -7,8 +6,17 @@ import torch
 
 from detectron2.layers import batched_nms, cat
 from detectron2.structures import Boxes, Instances
+from detectron2.utils.env import TORCH_VERSION
 
 logger = logging.getLogger(__name__)
+
+
+def _is_tracing():
+    if torch.jit.is_scripting():
+        # https://github.com/pytorch/pytorch/issues/47379
+        return False
+    else:
+        return TORCH_VERSION >= (1, 7) and torch.jit.is_tracing()
 
 
 def find_top_rpn_proposals(
@@ -18,16 +26,14 @@ def find_top_rpn_proposals(
     nms_thresh: float,
     pre_nms_topk: int,
     post_nms_topk: int,
-    min_box_side_len: int,
+    min_box_size: float,
     training: bool,
     max_box_side_len:int,
 ):
     """
     For each feature map, select the `pre_nms_topk` highest scoring proposals,
     apply NMS, clip proposals, and remove small boxes. Return the `post_nms_topk`
-    highest scoring proposals among all the feature maps if `training` is True,
-    otherwise, returns the highest `post_nms_topk` scoring proposals for each
-    feature map.
+    highest scoring proposals among all the feature maps for each image.
 
     Args:
         proposals (list[Tensor]): A list of L tensors. Tensor i has shape (N, Hi*Wi*A, 4).
@@ -41,7 +47,7 @@ def find_top_rpn_proposals(
         post_nms_topk (int): number of top k scoring proposals to keep after applying NMS.
             When RPN is run on multiple feature maps (as in FPN) this number is total,
             over all feature maps.
-        min_box_side_len (float): minimum proposal box side length in pixels (absolute units
+        min_box_size (float): minimum proposal box side length in pixels (absolute units
             wrt input images).
         training (bool): True if proposals are to be used in training, otherwise False.
             This arg exists only to support a legacy bug; look for the "NB: Legacy bug ..."
@@ -60,17 +66,18 @@ def find_top_rpn_proposals(
     topk_proposals = []
     level_ids = []  # #lvl Tensor, each of shape (topk,)
     batch_idx = torch.arange(num_images, device=device)
-    for level_id, proposals_i, logits_i in zip(
-        itertools.count(), proposals, pred_objectness_logits
-    ):
+    for level_id, (proposals_i, logits_i) in enumerate(zip(proposals, pred_objectness_logits)):
         Hi_Wi_A = logits_i.shape[1]
-        num_proposals_i = min(pre_nms_topk, Hi_Wi_A)
+        if isinstance(Hi_Wi_A, torch.Tensor):  # it's a tensor in tracing
+            num_proposals_i = torch.clamp(Hi_Wi_A, max=pre_nms_topk)
+        else:
+            num_proposals_i = min(Hi_Wi_A, pre_nms_topk)
 
-        # sort is faster than topk (https://github.com/pytorch/pytorch/issues/22812)
+        # sort is faster than topk: https://github.com/pytorch/pytorch/issues/22812
         # topk_scores_i, topk_idx = logits_i.topk(num_proposals_i, dim=1)
         logits_i, idx = logits_i.sort(descending=True, dim=1)
-        topk_scores_i = logits_i[batch_idx, :num_proposals_i]
-        topk_idx = idx[batch_idx, :num_proposals_i]
+        topk_scores_i = logits_i.narrow(1, 0, num_proposals_i)
+        topk_idx = idx.narrow(1, 0, num_proposals_i)
 
         # each is N x topk
         topk_proposals_i = proposals_i[batch_idx[:, None], topk_idx]  # N x topk x 4
@@ -85,7 +92,7 @@ def find_top_rpn_proposals(
     level_ids = cat(level_ids, dim=0)
 
     # 3. For each image, run a per-level NMS, and choose topk results.
-    results = []
+    results: List[Instances] = []
     for n, image_size in enumerate(image_sizes):
         boxes = Boxes(topk_proposals[n])
         scores_per_img = topk_scores[n]
@@ -104,8 +111,9 @@ def find_top_rpn_proposals(
 
         # filter empty boxes
         keep = boxes.nonempty(threshold=min_box_side_len, upper_threshold=max_box_side_len)
-        if keep.sum().item() != len(boxes):
+        if _is_tracing() or keep.sum().item() != len(boxes):
             boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
+
 
         keep = batched_nms(boxes.tensor, scores_per_img, lvl, nms_thresh)
         # In Detectron1, there was different behavior during training vs. testing.
@@ -162,13 +170,13 @@ def add_ground_truth_to_proposals_single_image(gt_boxes, proposals):
         Same as `add_ground_truth_to_proposals`, but for only one image.
     """
     device = proposals.objectness_logits.device
-    # Concatenating gt_boxes with proposals requires them to have the same fields
-    # Assign all ground-truth boxes an objectness logit corresponding to P(object) \approx 1.
+    # Assign all ground-truth boxes an objectness logit corresponding to
+    # P(object) = sigmoid(logit) =~ 1.
     gt_logit_value = math.log((1.0 - 1e-10) / (1 - (1.0 - 1e-10)))
-
     gt_logits = gt_logit_value * torch.ones(len(gt_boxes), device=device)
-    gt_proposal = Instances(proposals.image_size)
 
+    # Concatenating gt_boxes with proposals requires them to have the same fields
+    gt_proposal = Instances(proposals.image_size)
     gt_proposal.proposal_boxes = gt_boxes
     gt_proposal.objectness_logits = gt_logits
     new_proposals = Instances.cat([proposals, gt_proposal])

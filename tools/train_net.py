@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 """
 Detection Training Script.
 
@@ -66,13 +66,11 @@ class Trainer(DefaultTrainer):
                 SemSegEvaluator(
                     dataset_name,
                     distributed=True,
-                    num_classes=cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES,
-                    ignore_label=cfg.MODEL.SEM_SEG_HEAD.IGNORE_VALUE,
                     output_dir=output_folder,
                 )
             )
         if evaluator_type in ["coco", "coco_panoptic_seg"]:
-            evaluator_list.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
+            evaluator_list.append(COCOEvaluator(dataset_name, output_dir=output_folder))
         if evaluator_type == "coco_panoptic_seg":
             evaluator_list.append(COCOPanopticEvaluator(dataset_name, output_folder))
         if evaluator_type == "cityscapes_instance":
@@ -88,11 +86,10 @@ class Trainer(DefaultTrainer):
         elif evaluator_type == "pascal_voc":
             return PascalVOCDetectionEvaluator(dataset_name)
         elif evaluator_type == "lvis":
-            return LVISEvaluator(dataset_name, cfg, True, output_folder)
+            return LVISEvaluator(dataset_name, output_dir=output_folder)
         if evaluator_type == "giana":
             evaluator_list.append(COCOEvaluator(dataset_name, cfg, True, output_folder))
             evaluator_list.append(GianaEvaluator(dataset_name, output_folder, metric_type=cfg.TEST.GIANA_METRICS))
-
         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(
@@ -165,7 +162,6 @@ def main(args):
 
 
 if __name__ == "__main__":
-
     args = default_argument_parser().parse_args()
     print("Command Line Args:", args)
     launch(
