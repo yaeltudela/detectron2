@@ -644,21 +644,6 @@ class SplitFastRCNNOutputLayers(FastRCNNOutputLayers):
         """
         NOTE: this interface is experimental.
 
-        Args:
-            input_shape (ShapeSpec): shape of the input feature to this module
-            box2box_transform (Box2BoxTransform or Box2BoxTransformRotated):
-            num_classes (int): number of foreground classes
-            test_score_thresh (float): threshold to filter predictions results.
-            test_nms_thresh (float): NMS threshold for prediction results.
-            test_topk_per_image (int): number of top predictions to produce per image.
-            cls_agnostic_bbox_reg (bool): whether to use class agnostic for bbox regression
-            smooth_l1_beta (float): transition point from L1 to L2 loss. Only used if
-                `box_reg_loss_type` is "smooth_l1"
-            box_reg_loss_type (str): Box regression loss type. One of: "smooth_l1", "giou"
-            loss_weight (float|dict): weights to use for losses. Can be single float for weighting
-                all losses, or a dict of individual weightings. Valid dict keys are:
-                    * "loss_cls": applied to classification loss
-                    * "loss_box_reg": applied to box regression loss
         """
         super().__the_trap__()
         input_shape_cls, input_shape_loc = input_shape
@@ -692,7 +677,6 @@ class SplitFastRCNNOutputLayers(FastRCNNOutputLayers):
             loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight}
         self.loss_weight = loss_weight
 
-
     def forward(self, x):
         x_fcs = x[0]
         x_locs = x[1]
@@ -706,4 +690,93 @@ class SplitFastRCNNOutputLayers(FastRCNNOutputLayers):
         return scores, proposal_deltas
 
 
+class SSSplitFastRCNNOutputLayers(SplitFastRCNNOutputLayers):
+    @configurable
+    def __init__(self, input_shape: ShapeSpec, *, box2box_transform, num_classes: int, test_score_thresh: float = 0.0,
+                 test_nms_thresh: float = 0.5, test_topk_per_image: int = 100, cls_agnostic_bbox_reg: bool = False,
+                 smooth_l1_beta: float = 0.0, box_reg_loss_type: str = "smooth_l1",
+                 loss_weight: Union[float, Dict[str, float]] = 1.0):
+        """
+        NOTE: this interface is experimental.
 
+        """
+        super().__init__(input_shape, box2box_transform=box2box_transform, num_classes=num_classes,
+                         test_score_thresh=test_score_thresh, test_nms_thresh=test_nms_thresh,
+                         test_topk_per_image=test_topk_per_image, cls_agnostic_bbox_reg=cls_agnostic_bbox_reg,
+                         smooth_l1_beta=smooth_l1_beta, box_reg_loss_type=box_reg_loss_type, loss_weight=loss_weight)
+
+        self.ss_bbox_pred = nn.Linear(self.bbox_pred.in_features, self.bbox_pred.out_features)
+        self.ss_cls_score = nn.Linear(self.cls_score.in_features, self.cls_score.out_features)
+
+        nn.init.normal_(self.ss_cls_score.weight, std=0.01)
+        nn.init.normal_(self.ss_bbox_pred.weight, std=0.001)
+        for l in [self.ss_cls_score, self.ss_bbox_pred]:
+            nn.init.constant_(l.bias, 0)
+
+        self.return_ss = True
+
+    def forward(self, x):
+        x_fcs = x[0]
+        x_locs = x[1]
+        if x_fcs.dim() > 2:
+            x_fcs = torch.flatten(x_fcs, start_dim=1)
+        if x_locs.dim() > 2:
+            x_locs = torch.flatten(x_locs, start_dim=1)
+
+        scores = self.cls_score(x_fcs)
+        ss_scores = self.ss_cls_score(x_fcs)
+        proposal_deltas = self.bbox_pred(x_locs)
+        ss_proposal_deltas = self.bbox_pred(x_locs)
+
+        return (scores, ss_scores), (proposal_deltas, ss_proposal_deltas)
+
+    def losses(self, predictions, proposals):
+        (scores, ss_scores), (proposal_deltas, ss_proposal_deltas) = predictions
+        predictions = (scores, proposal_deltas)
+        ss_predictions = (ss_scores, ss_proposal_deltas)
+        losses = super().losses(predictions, proposals)
+
+        # parse classification outputs
+        gt_classes = (
+            cat([p.gt_classes for p in proposals], dim=0) if len(proposals) else torch.empty(0)
+        )
+
+        # parse box regression outputs
+        if len(proposals):
+            proposal_boxes = cat([p.proposal_boxes.tensor for p in proposals], dim=0)  # Nx4
+            assert not proposal_boxes.requires_grad, "Proposals should not require gradients!"
+            # If "gt_boxes" does not exist, the proposals must be all negative and
+            # should not be included in regression loss computation.
+            # Here we just use proposal_boxes as an arbitrary placeholder because its
+            # value won't be used in self.box_reg_loss().
+            gt_boxes = cat(
+                [(p.gt_boxes if p.has("gt_boxes") else p.proposal_boxes).tensor for p in proposals],
+                dim=0,
+            )
+        else:
+            proposal_boxes = gt_boxes = torch.empty((0, 4), device=ss_proposal_deltas.device)
+
+        predicted_boxes = super().predict_boxes(ss_predictions, proposals)
+
+        losses.update(
+            {
+                "loss_ss_cls": cross_entropy(ss_scores, gt_classes, reduction='mean') + .5 * cross_entropy(ss_scores, scores.max(dim=1)[1], reduction='mean'),
+                "loss_ss_box_reg": self.box_reg_loss(proposal_boxes, gt_boxes, ss_proposal_deltas, gt_classes) + .5 * self.box_reg_loss(proposal_boxes, torch.cat(predicted_boxes), ss_proposal_deltas, scores.max(dim=1)[1])
+            }
+        )
+
+        return losses
+
+    def predict_probs(self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]):
+        (scores, ss_scores), (proposal_deltas, ss_proposal_deltas) = predictions
+        predictions = (scores, proposal_deltas)
+        if self.return_ss:
+            predictions = (ss_scores, ss_proposal_deltas)
+        return super().predict_probs(predictions, proposals)
+
+    def predict_boxes(self, predictions: Tuple[torch.Tensor, torch.Tensor], proposals: List[Instances]):
+        (scores, ss_scores), (proposal_deltas, ss_proposal_deltas) = predictions
+        predictions = (scores, proposal_deltas)
+        if self.return_ss:
+            predictions = (ss_scores, ss_proposal_deltas)
+        return super().predict_boxes(predictions, proposals)

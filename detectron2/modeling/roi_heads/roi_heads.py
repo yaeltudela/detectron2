@@ -18,7 +18,7 @@ from ..poolers import ROIPooler
 from ..proposal_generator.proposal_utils import add_ground_truth_to_proposals
 from ..sampling import subsample_labels
 from .box_head import build_box_head, SplitFastRCNNConvFCHead
-from .fast_rcnn import FastRCNNOutputLayers, SplitFastRCNNOutputLayers
+from .fast_rcnn import FastRCNNOutputLayers, SplitFastRCNNOutputLayers, SSSplitFastRCNNOutputLayers
 from .keypoint_head import build_keypoint_head
 from .mask_head import build_mask_head
 
@@ -634,7 +634,9 @@ class StandardROIHeads(ROIHeads):
             cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
         )
         if isinstance(box_head, SplitFastRCNNConvFCHead):
-            box_predictor = SplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+            # box_predictor = SplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+            box_predictor = SSSplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+
         else:
             box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
         return {
