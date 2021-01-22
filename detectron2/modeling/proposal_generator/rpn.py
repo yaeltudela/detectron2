@@ -2,6 +2,7 @@
 from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
+import numpy as np
 from fvcore.nn import giou_loss, smooth_l1_loss
 from torch import nn
 
@@ -164,6 +165,7 @@ class RPN(nn.Module):
         loss_weight: Union[float, Dict[str, float]] = 1.0,
         box_reg_loss_type: str = "smooth_l1",
         smooth_l1_beta: float = 0.0,
+        max_size: float = np.inf
     ):
         """
         NOTE: this interface is experimental.
@@ -205,8 +207,7 @@ class RPN(nn.Module):
         self.box2box_transform = box2box_transform
         self.batch_size_per_image = batch_size_per_image
         self.positive_fraction = positive_fraction
-        max_size = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE != -1
-        self.max_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE if max_size else np.inf
+        self.max_size = max_size
         # Map from self.training state to train/test settings
         self.pre_nms_topk = {True: pre_nms_topk[0], False: pre_nms_topk[1]}
         self.post_nms_topk = {True: post_nms_topk[0], False: post_nms_topk[1]}
@@ -246,6 +247,8 @@ class RPN(nn.Module):
             cfg.MODEL.RPN.IOU_THRESHOLDS, cfg.MODEL.RPN.IOU_LABELS, allow_low_quality_matches=True
         )
         ret["head"] = build_rpn_head(cfg, [input_shape[f] for f in in_features])
+        max_size = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE != -1
+        ret['max_size'] = cfg.MODEL.PROPOSAL_GENERATOR.MAX_SIZE if max_size else np.inf
         return ret
 
     def _subsample_labels(self, label):
@@ -470,7 +473,7 @@ class RPN(nn.Module):
         """
         # The proposals are treated as fixed for joint training with roi heads.
         # This approach ignores the derivative w.r.t. the proposal boxes’ coordinates that
-        # are also network responses, so is approximate.
+        # are also network responses.
         with torch.no_grad():
             pred_proposals = self._decode_proposals(anchors, pred_anchor_deltas)
             return find_top_rpn_proposals(
@@ -482,7 +485,7 @@ class RPN(nn.Module):
                 self.post_nms_topk[self.training],
                 self.min_box_size,
                 self.training,
-                self.max_box_side_len
+                self.max_size
             )
 
     def _decode_proposals(self, anchors: List[Boxes], pred_anchor_deltas: List[torch.Tensor]):

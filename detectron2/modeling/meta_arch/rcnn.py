@@ -1,7 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 import logging
-from copy import deepcopy
-
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import torch
@@ -85,10 +83,6 @@ class GeneralizedRCNN(nn.Module):
             "pixel_std": cfg.MODEL.PIXEL_STD,
         }
 
-        self.prev_proposals = None
-        self.prev_gt_instances = None
-
-
     @property
     def device(self):
         return self.pixel_mean.device
@@ -164,8 +158,6 @@ class GeneralizedRCNN(nn.Module):
 
         if self.proposal_generator is not None:
             proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
-            # self.prev_proposals = deepcopy(proposals)
-            # self.prev_gt_instances = deepcopy(gt_instances)
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]

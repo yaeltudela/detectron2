@@ -134,7 +134,6 @@ def main(args):
     cfg = setup(args)
     only_polyp_cls = cfg.MODEL.ROI_HEADS.NUM_CLASSES == 1
     register_polyp_datasets(only_polyp_cls)
-    torch.autograd.set_detect_anomaly(True)
     if args.eval_only:
         model = Trainer.build_model(cfg)
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(

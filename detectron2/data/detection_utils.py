@@ -666,3 +666,7 @@ def build_transform_gen_old(cfg, is_train):
             tfm_gens.append(T.RandomGaussianBlur(gaussian_blur_kernel, gaussian_blur_prob))
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens
+
+
+build_augmentation = build_transform_gen_old
+build_transform_gen = build_transform_gen_old

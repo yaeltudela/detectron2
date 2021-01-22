@@ -15,7 +15,7 @@ from fvcore.transforms.transform import (
 from PIL import Image
 
 from .augmentation import Augmentation, _transform_to_aug
-from .transform import ExtentTransform, ResizeTransform, RotationTransform
+from .transform import ExtentTransform, ResizeTransform, RotationTransform, RandomHueTransform, GaussianBlurTransform
 
 __all__ = [
     "RandomApply",
@@ -406,7 +406,7 @@ class RandomContrast(Augmentation):
         w = np.random.uniform(self.intensity_min, self.intensity_max)
         do = self._rand_range() < self.prob
         if do:
-            return BlendTransform(src_image=img.mean(), src_weight=1 - w, dst_weight=w)
+            return BlendTransform(src_image=image.mean(), src_weight=1 - w, dst_weight=w)
         else:
             return NoOpTransform()
 
@@ -500,7 +500,7 @@ class RandomLighting(Augmentation):
         )
 
 
-class RandomHue(TransformGen):
+class RandomHue(Augmentation):
 
     def __init__(self, hue_min, hue_max, prob=0.5):
         super()._init()
@@ -516,7 +516,7 @@ class RandomHue(TransformGen):
             return NoOpTransform()
 
 
-class RandomGaussianBlur(TransformGen):
+class RandomGaussianBlur(Augmentation):
 
     def __init__(self, kernel_size, prob=0.5):
         self.kernel_size = kernel_size

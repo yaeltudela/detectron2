@@ -17,8 +17,8 @@ from ..matcher import Matcher
 from ..poolers import ROIPooler
 from ..proposal_generator.proposal_utils import add_ground_truth_to_proposals
 from ..sampling import subsample_labels
-from .box_head import build_box_head
-from .fast_rcnn import FastRCNNOutputLayers
+from .box_head import build_box_head, SplitFastRCNNConvFCHead
+from .fast_rcnn import FastRCNNOutputLayers, SplitFastRCNNOutputLayers
 from .keypoint_head import build_keypoint_head
 from .mask_head import build_mask_head
 
@@ -633,7 +633,10 @@ class StandardROIHeads(ROIHeads):
         box_head = build_box_head(
             cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
         )
-        box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
+        if isinstance(box_head, SplitFastRCNNConvFCHead):
+            box_predictor = SplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+        else:
+            box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
         return {
             "box_in_features": in_features,
             "box_pooler": box_pooler,

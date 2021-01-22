@@ -1,0 +1,32 @@
+_BASE_: "../Base-RCNN-FPN.yaml"
+SEED: 42
+DATASETS:
+  TRAIN: ("CVC_VideoClinicDB_train", "CVC_HDClassif" )
+  TEST: ("CVC_VideoClinicDB_test", "CVC_ColonDB", "CVC_ClinicDB", )
+MODEL:
+  WEIGHTS: "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"
+  MASK_ON: False
+  RESNETS:
+    DEPTH: 101
+  ROI_BOX_HEAD:
+    BBOX_REG_LOSS_TYPE: "giou"
+INPUT:
+  VFLIP: True
+  HFLIP: True
+  ROTATION: True
+  ROTATION_ANGLES: (-10, 10)
+  MIN_SIZE_TRAIN: (288, 384, 432, 576)
+  MAX_SIZE_TRAIN: 800
+  MIN_SIZE_TEST: 432
+  MAX_SIZE_TEST: 800
+SOLVER:
+  IMS_PER_BATCH: 2
+  BASE_LR: 0.0025
+  WEIGHT_DECAY: 0.0001
+  STEPS: (0, 13822, 22114)
+  MAX_ITER: 27643 # 5 epocas
+  LR_SCHEDULER_NAME: "WarmupCosineLR"
+
+OUTPUT_DIR: "results/paper_exps/wHD"
+TEST:
+  DETECTIONS_PER_IMAGE: 3

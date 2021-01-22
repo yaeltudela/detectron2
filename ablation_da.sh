@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_base.yaml"
+# python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_101_FPN_baseline.yaml"
 # python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_constrast.yaml"
 # python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_upscale2_0.yaml"
 # python tools/train_net.py --config-file "configs/polyp/da_ablation/faster_R_50_FPN_25rotation.yaml"

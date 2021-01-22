@@ -30,7 +30,7 @@ __all__ = [
     "RotationTransform",
     "ColorTransform",
     "PILColorTransform",
-    "GaussianBlurTrasnform",
+    "GaussianBlurTransform",
     "RandomHueTransform",
     "RotationTransform"
 ]

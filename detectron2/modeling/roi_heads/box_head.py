@@ -31,7 +31,7 @@ class FastRCNNConvFCHead(nn.Sequential):
 
     @configurable
     def __init__(
-        self, input_shape: ShapeSpec, *, conv_dims: List[int], fc_dims: List[int], conv_norm=""
+            self, input_shape: ShapeSpec, *, conv_dims: List[int], fc_dims: List[int], conv_norm=""
     ):
         """
         NOTE: this interface is experimental.
@@ -108,6 +108,100 @@ class FastRCNNConvFCHead(nn.Sequential):
             return ShapeSpec(channels=o)
         else:
             return ShapeSpec(channels=o[0], height=o[1], width=o[2])
+
+
+@ROI_BOX_HEAD_REGISTRY.register()
+class SplitFastRCNNConvFCHead(nn.Sequential):
+
+    @configurable
+    def __init__(self, input_shape: ShapeSpec, *, conv_dims: List[int], fc_dims: List[int], conv_norm=""):
+        """
+        NOTE: this interface is experimental.
+
+        Args:
+            input_shape (ShapeSpec): shape of the input feature.
+            conv_dims (list[int]): the output dimensions of the conv layers
+            fc_dims (list[int]): the output dimensions of the fc layers
+            conv_norm (str or callable): normalization for the conv layers.
+                See :func:`detectron2.layers.get_norm` for supported types.
+        """
+
+        super().__init__()
+        self.fcs = FastRCNNConvFCHead(input_shape, conv_dims=conv_dims, fc_dims=fc_dims, conv_norm=conv_norm)
+        self.locs = ResidualD(input_shape[0], 256, 256, input_shape)
+        self._output_size = (input_shape.channels, input_shape.height, input_shape.width)
+
+    def forward(self, input):
+        out_fc = self.fcs(input)
+        out_locs = self.locs(input)
+
+        return out_fc, out_locs
+
+    @classmethod
+    def from_config(cls, cfg, input_shape):
+        num_conv = cfg.MODEL.ROI_BOX_HEAD.NUM_CONV
+        conv_dim = cfg.MODEL.ROI_BOX_HEAD.CONV_DIM
+        num_fc = cfg.MODEL.ROI_BOX_HEAD.NUM_FC
+        fc_dim = cfg.MODEL.ROI_BOX_HEAD.FC_DIM
+        return {
+            "input_shape": input_shape,
+            "conv_dims": [conv_dim] * num_conv,
+            "fc_dims": [fc_dim] * num_fc,
+            "conv_norm": cfg.MODEL.ROI_BOX_HEAD.NORM,
+        }
+
+    @property
+    @torch.jit.unused
+    def output_shape(self):
+        """
+        Returns:
+            ShapeSpec: the output feature shape
+        """
+        return self.fcs.output_shape, self.locs.output_shape
+
+
+class ResidualD(nn.Module):
+    def __init__(self, in_channels, planes, out_channels, input_shape):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=2, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.relu2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(planes, out_channels, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes)
+        self.downsample = nn.AvgPool2d(2, stride=2)
+        self.relu3 = nn.ReLU()
+        a = (input_shape.channels, input_shape.height - 4, input_shape.width - 4)
+        self._output_shape = ShapeSpec(channels=a[0], height=a[1], width=a[2])
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu2(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        residual = self.downsample(x)
+        out = out + residual
+        out = self.relu3(out)
+
+        return out
+
+    @property
+    @torch.jit.unused
+    def output_shape(self):
+        """
+        Returns:
+            ShapeSpec: the output feature shape
+        """
+        return self._output_shape
 
 
 def build_box_head(cfg, input_shape):
