@@ -128,8 +128,20 @@ class SplitFastRCNNConvFCHead(nn.Sequential):
 
         super().__init__()
         self.fcs = FastRCNNConvFCHead(input_shape, conv_dims=conv_dims, fc_dims=fc_dims, conv_norm=conv_norm)
-        self.locs = ResidualD(input_shape[0], 256, 256, input_shape)
+        self.locs = self.build_locs(input_shape, 2)
         self._output_size = (input_shape.channels, input_shape.height, input_shape.width)
+
+    def build_locs(self, input_shape, num_blocsk=1):
+        if num_blocsk == 1:
+            return ResidualD(input_shape[0], 256, 256, input_shape)
+        else:
+            tmp = [ResidualD(input_shape[0], 256, 256, input_shape)]
+            for i in range(num_blocsk - 1):
+                out_shape = tmp[-1].output_shape
+                tmp.append(ResidualD(out_shape[0], 256, 256, out_shape))
+            out = nn.Sequential(*tmp)
+            out.output_shape = out[-1].output_shape
+            return out
 
     def forward(self, input):
         out_fc = self.fcs(input)

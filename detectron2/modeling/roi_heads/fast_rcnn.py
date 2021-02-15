@@ -677,6 +677,7 @@ class SplitFastRCNNOutputLayers(FastRCNNOutputLayers):
             loss_weight = {"loss_cls": loss_weight, "loss_box_reg": loss_weight}
         self.loss_weight = loss_weight
 
+
     def forward(self, x):
         x_fcs = x[0]
         x_locs = x[1]

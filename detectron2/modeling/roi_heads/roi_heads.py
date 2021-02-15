@@ -634,8 +634,8 @@ class StandardROIHeads(ROIHeads):
             cfg, ShapeSpec(channels=in_channels, height=pooler_resolution, width=pooler_resolution)
         )
         if isinstance(box_head, SplitFastRCNNConvFCHead):
-            # box_predictor = SplitFastRCNNOutputLayers(cfg, box_head.output_shape)
-            box_predictor = SSSplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+            box_predictor = SplitFastRCNNOutputLayers(cfg, box_head.output_shape)
+            # box_predictor = SSSplitFastRCNNOutputLayers(cfg, box_head.output_shape)
 
         else:
             box_predictor = FastRCNNOutputLayers(cfg, box_head.output_shape)
